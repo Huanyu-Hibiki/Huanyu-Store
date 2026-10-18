@@ -4,6 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { migrate } from '../scripts/migrate.mjs';
 import { loadLocalEnv, resetDatabase, startDevServer } from './helpers.mjs';
 
@@ -14,6 +16,10 @@ process.env.PUBLISHER_EMAILS='publisher@example.com'; // 单名白名单：非 p
 
 const outboxDir=mkdtempSync(path.join(tmpdir(),'huanyu-store-product-mail-'));
 const outbox=path.join(outboxDir,'outbox.jsonl');
+// 任务 5 起本文件也触 publish（孤儿发布翻转用例）：假 Blob 存储指私有临时目录
+const blobDir=mkdtempSync(path.join(tmpdir(),'huanyu-store-product-blob-'));
+delete process.env.BLOB_READ_WRITE_TOKEN;
+process.env.FAKE_BLOB_DIR=blobDir;
 let server;
 
 if (testUrl){
@@ -23,7 +29,7 @@ if (testUrl){
     await migrate(testUrl);
     server=await startDevServer(testUrl);
   });
-  test.after(async()=>{ if (server) await server.stop(); rmSync(outboxDir,{recursive:true,force:true}); });
+  test.after(async()=>{ if (server) await server.stop(); rmSync(outboxDir,{recursive:true,force:true}); rmSync(blobDir,{recursive:true,force:true}); });
   test.beforeEach(async()=>{ await resetDatabase(testUrl); writeFileSync(outbox,''); });
 }
 
@@ -273,7 +279,7 @@ function runCli(args,{token}={}){
   });
 }
 
-test('真实 CLI 冒烟：hy product 注册后 hy list 可见（退出码 0）；hy product 的完整注册依赖 /api/store/versions（任务 5）',{skip:cliSkip()},async()=>{
+test('真实 CLI 冒烟：hy product 注册后 hy list 可见（退出码 0）；任务 5 落地 versions 后孤儿发布→真实 hy product 完整注册退出 0',{skip:cliSkip()},async()=>{
   const token=await cliTokenOf('publisher@example.com');
   // 经鉴权 PUT 先落一个商品（等价 CLI fixture 直连钉住服务端语义的做法）
   const seeded=await putProduct('smoke-skill',{
@@ -298,14 +304,24 @@ test('真实 CLI 冒烟：hy product 注册后 hy list 可见（退出码 0）�
   assert.equal(paid.type,'paid');
   assert.deepEqual(paid.prices,{lifetime:{amount:100,currency:'cny',interval:null}});
 
-  // 真实 hy product：HY_TOKEN 免设备码直连。CLI 的 product 流程硬依赖 GET /api/store/versions
-  // （cli.js product(ctx) 在 PUT 前必取版本表做 known 预检），该端点是任务 5 交付——当前 404 使 CLI
-  // 以 invalid_response 退出 1。本断言钉住任务边界：任务 5 落地 versions 后翻转为退出 0 的完整注册。
-  const product=await runCli(['product','smoke-skill','--set','summary=真实CLI更新。','--json'],{token});
-  assert.equal(product.code,1,`${product.stdout}\n${product.stderr}`);
+  // 任务 5 翻转（原任务 4 边界用例）：孤儿 publish 一个版本（尚无商品关联）→ versions 立即可查 →
+  // 真实 hy product 的 known 预检（versions[skill] || catalog 命中）通过 → 完整注册退出 0。
+  const orphanBody=gzipSync(Buffer.from('task5 orphan release'));
+  const orphan=await fetch(`${server.base}/api/store/publish`,{
+    method:'POST',
+    headers:{'content-type':'application/gzip','x-skill-name':'smoke-orphan-skill','x-skill-version':'1.0.0',
+      'x-content-sha256':createHash('sha256').update(orphanBody).digest('hex'),authorization:`Bearer ${token}`},
+    body:orphanBody,
+  });
+  assert.equal(orphan.status,200,JSON.stringify(await orphan.json().catch(()=>null)));
+
+  const product=await runCli(['product','smoke-orphan-skill','--set','summary=孤儿发布后注册。','--json'],{token});
+  assert.equal(product.code,0,`${product.stdout}\n${product.stderr}`);
   const event=JSON.parse(product.stdout);
-  assert.equal(event.error,'invalid_response');
-  assert.equal(event.command,'product');
+  assert.equal(event.event,'product');
+  assert.equal(event.skill,'smoke-orphan-skill');
+  assert.equal(event.product.free.skill,'smoke-orphan-skill');
+  assert.equal(event.product.summary,'孤儿发布后注册。');
 });
 
 // —— 审查修复（security M-1/L-1、quality M1 M2 M3 M4）：写入端收紧与并发 ——
