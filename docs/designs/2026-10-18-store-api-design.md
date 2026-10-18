@@ -132,7 +132,8 @@ releases(skill text, version text, sha256 char(64), size int, notes text null,
 | 12 | 付费包发布 | 允许发布（私有存储），下载恒 402 直到二期接支付 | 二期 |
 | 13 | 过期数据 | 惰性过期（查询时比对），不做主动清理任务 | 数据量上来再加 cron |
 | 15 | URL 规范源 | `SITE_ORIGIN` 环境变量配置后 siteBase 一律用它（生产配 https://skills.huanyu.dev）；未配置回落 x-forwarded 头（信任 Vercel 覆写语义） | 自托管换反代时 |
-| 16 | tar.gz 不解析 | 服务端只验魔数/尺寸/摘要，不解析内容（CLI 侧预检对称兜底）；残余：非 CLI 消费者无保护、商店实质是 publisher 白名单把关的每对象 4MB 内容托管；免费包匿名下载的带宽放大由任务 6 下载限频缓解 | 出现滥用时再收紧 |
+| 16 | tar.gz 不解析 | 服务端只验魔数/尺寸/摘要，不解析内容（CLI 侧预检对称兜底）；残余：非 CLI 消费者无保护、商店实质是 publisher 白名单把关的每对象 4MB 内容托管。**带宽放大缓解为 best-effort（任务 6 审查修正口径）**：download 端点 60 次/分/IP 的匿名限频只封「签发」，presigned URL 在 15 分钟 TTL 内可无限重放取字节（字节吞吐与限频解耦）；IPv6 /64 轮换可进一步稀释 per-IP 窗口。运维缓解靠 Vercel WAF/告警；出现实际滥用时再收紧（TTL 下压/一次性票） | 出现滥用时再收紧 |
+| 18 | attest 回环端点 | 假仓自指回环附件路由仅存在于非生产（真仓 token 存在或生产无 token 均 404）；键形状 `\.[^/]+` 尾缀闭合 + fakeRoot 包含性断言双防线（任务 6 审查 HIGH 修复） | — |
 | 17 | versions 增长 | 每 skill 版本数上限 200 封顶放大链；versions/catalog 全量输出无分页（目录即商品本体，规模受自然约束） | 商品数上百时 |
 | 14 | 发信域名 | `skills.huanyu.dev` 作为 Resend 发信域（DKIM 对该子域签名，声誉与根域隔离） | — |
 
