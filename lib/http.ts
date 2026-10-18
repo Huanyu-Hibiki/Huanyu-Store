@@ -16,3 +16,18 @@ export function sameOrigin(request: Request): boolean {
     return false;
   }
 }
+
+/** 站点基址（协议+主机，无路径）：优先平台/反代控制的 x-forwarded-*，本地回落 http + Host。
+ *  生成 verification_uri 用；与 sameOrigin 同理不信任 request.url。 */
+export function siteBase(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim() || "http";
+  return `${proto}://${host}`;
+}
+
+/** Authorization: Bearer <token> 解析；缺失或非 Bearer 方案返回 null。 */
+export function bearerToken(request: Request): string | null {
+  const match = request.headers.get("authorization")?.match(/^Bearer (.+)$/);
+  const token = match ? match[1].trim() : "";
+  return token || null;
+}
