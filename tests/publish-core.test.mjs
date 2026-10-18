@@ -249,20 +249,24 @@ test('假存储的 put/signedUrl 拒绝不匹配键形状的对象键（security
     const store=blobStore();
     for (const key of ['evil/path.tar.gz','releases/a/../../etc/passwd','releases/A/1.0.0-x.tar.gz',
       'plain.txt','','releases/a/','releases/a/1.0.0-x.tar.gz/../../escape','releases/a/1.0.0-x.tgz']) {
-      await assert.rejects(()=>store.signedUrl(key),/Blob 键/,JSON.stringify(key));
+      await assert.rejects(()=>store.signedUrl(key,{base:'http://127.0.0.1:9'}),/Blob 键/,JSON.stringify(key));
     }
-    // 合法键（随机后缀）与契约允许的多余尾缀形态（(\..+)? 分支）放行
-    const signed=await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz');
-    assert.match(signed,/[\\/]releases[\\/]a-skill[\\/]1\.0\.0-abcd1234\.tar\.gz$/);
-    assert.match(await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz.extra'),/tar\.gz\.extra$/);
+    // 缺 base 拒（回环 attest URL 无处可指）；合法键（随机后缀）与契约允许的多余尾缀形态放行
+    await assert.rejects(()=>store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz'),/基址/);
+    const signed=await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz',{base:'http://127.0.0.1:9'});
+    assert.match(signed,/^http:\/\/127\.0\.0\.1:9\/api\/store\/blob-attest\?key=releases%2Fa-skill%2F1\.0\.0-abcd1234\.tar\.gz&exp=\d+$/);
+    assert.match(await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz.extra',{base:'http://127.0.0.1:9'}),/1\.0\.0-abcd1234\.tar\.gz\.extra&exp=\d+$/,'尾缀形态 (\..+)? 放行');
   });
 });
 
-test('假存储的 signedUrl 返回本地可读路径（任务 6 免令牌路径的同构入口）',async()=>{
-  await withBlobEnv({},async(scratch)=>{
+test('假存储的 signedUrl 为自指回环 attest URL，read 取回落盘字节（任务 6 免令牌路径）',async()=>{
+  await withBlobEnv({},async()=>{
     const store=blobStore();
     const {path:key}=await store.put('demo-skill','1.0.0',Buffer.from('x'));
-    const signed=await store.signedUrl(key);
-    assert.equal(signed,path.join(scratch,...key.split('/')));
+    const signed=await store.signedUrl(key,{base:'http://127.0.0.1:9'});
+    assert.ok(signed.startsWith(`http://127.0.0.1:9/api/store/blob-attest?key=${encodeURIComponent(key)}&exp=`),'回环 attest URL 携带对象键');
+    assert.ok(/^\d+$/.test(signed.split('exp=')[1]),'exp 为毫秒时刻');
+    assert.deepEqual(await store.read(key),Buffer.from('x'),'read 私读与 put 落盘字节一致');
+    await assert.rejects(()=>store.read('evil/key'),/Blob 键/,'read 同受键形状闸门');
   });
 });
