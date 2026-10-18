@@ -14,11 +14,11 @@
 - [x] 基线测试通过（tsc 零错 + 3/3 绿）
 - [ ] 实现前读 `node_modules/next/dist/docs/` 的 route handlers / dynamic route params / cookies 章节（仓库 AGENTS.md：Next.js 16 有破坏性变更）
 - [ ] 环境密钥（Vercel + 本地 `.env`）：`DATABASE_URL`（Vercel 一键接入 Neon 后 `vercel env pull` 或手抄）；`BLOB_READ_WRITE_TOKEN`（建 Blob 私有仓，任务 5 前就绪即可）；`RESEND_API_KEY` + 发信域 `skills.huanyu.dev` DNS 验证（Resend 生成记录 → Cloudflare 粘贴；未就绪前用假发送器开发，不阻塞任务 2）；`PUBLISHER_EMAILS`（你的私人邮箱）
-- [ ] 本地/CI 测试库：CI 用 GitHub Actions postgres service；本地 `TEST_DATABASE_URL` 指任意可达 PG（Neon 免费库即可）
+- [ ] 本地/CI 测试库：CI 用 GitHub Actions postgres service；本地 `TEST_DATABASE_URL` 指任意可达 PG（Neon 免费库即可）→ 本地已用 Docker postgres:16（容器 huanyu-store-pg，store/store_test 两库）
 
 ## 任务列表
 
-### 任务 1: 数据库基座——迁移可执行、探针可查、测试骨架可起服务
+### 任务 1: 数据库基座——迁移可执行、探针可查、测试骨架可起服务 ✅ 完成（210d8c7 + 审查修复 0eb80b6，2026-10-18）
 - **交付**: 运维者对空库执行幂等迁移一次铺齐 7 张表（users/login_codes/web_sessions/cli_tokens/device_grants/products/releases + schema_migrations 版本表）；`GET /api/health` 返回数据库连通状态；集成测试骨架（起 dev server + 独立测试库 + 每用例清场）跑通第一条对探针的断言。
 - **验收标准**:
   - [ ] 迁移脚本重复执行不报错（幂等）；带版本记录表
@@ -28,7 +28,7 @@
 - **阻塞边**: 无
 - **安全**: 否
 
-### 任务 2: 验证码登录闭环——/cli 页输邮箱收码即登录
+### 任务 2: 验证码登录闭环——/cli 页输邮箱收码即登录 ✅ 完成（2026-10-18）
 - **交付**: 访客在 `/cli` 页输入邮箱 → 收到 Resend 六位验证码（10 分钟 TTL）→ 输码获得 Web 会话；退出登录生效。新邮箱即注册，无需密码。
 - **验收标准**:
   - [ ] 发码端点哈希落库、不回显验证码；单码尝试上限 5 次后作废
