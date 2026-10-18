@@ -240,6 +240,54 @@ test('notes 修订：PUT 后 versions 立即反映；空串归一 null；长度/
   assert.deepEqual(Object.keys(await missing.json()).sort(),['error','message']);
 });
 
+// —— 审查修复（security L-1 / L-6）：早退体清空与参数形状预检 ——
+
+test('早退路径清空请求体（security L-1）：yank/notes 的 401/403 与预检 404 早退后连接可复用',{skip},async()=>{
+  const reader=await cliTokenOf('reader@example.com');
+  const publisher=await cliTokenOf('publisher@example.com');
+  // 大体（512KB）让响应先于体完成：未消费完就回响应会毒化 keep-alive 连接
+  const body=JSON.stringify({notes:'x'.repeat(512*1024)});
+  const cases=[
+    {method:'DELETE',path:releaseUrl('drain-skill','1.0.0'),auth:null,status:401,error:'unauthorized'},
+    {method:'DELETE',path:releaseUrl('drain-skill','1.0.0'),auth:reader,status:403,error:'not_a_publisher'},
+    {method:'PUT',path:`${releaseUrl('drain-skill','1.0.0')}/notes`,auth:null,status:401,error:'unauthorized'},
+    {method:'PUT',path:`${releaseUrl('drain-skill','1.0.0')}/notes`,auth:reader,status:403,error:'not_a_publisher'},
+    // 形状预检 404（security L-6）：非法 skill/version 不触库直接早退，同须清空体
+    {method:'DELETE',path:releaseUrl('Bad','1.0.0'),auth:publisher,status:404,error:'not_found'},
+    {method:'DELETE',path:releaseUrl('drain-skill','01.0.0'),auth:publisher,status:404,error:'not_found'},
+    {method:'PUT',path:`${releaseUrl('Bad','1.0.0')}/notes`,auth:publisher,status:404,error:'not_found'},
+    {method:'PUT',path:`${releaseUrl('drain-skill','1.0')}/notes`,auth:publisher,status:404,error:'not_found'},
+  ];
+  for (const testCase of cases){
+    const rejected=await fetch(testCase.path,{
+      method:testCase.method,
+      headers:{'content-type':'application/json',...(testCase.auth?{authorization:`Bearer ${testCase.auth}`}:{})},
+      body,
+    });
+    assert.equal(rejected.status,testCase.status,JSON.stringify(testCase));
+    assert.equal((await rejected.json()).error,testCase.error);
+    // 不变量钉住：早退已清空体 → 紧跟同连接池的请求 5s 内完成（否则 undici 悬挂到 300s headersTimeout）
+    const follow=await fetch(`${server.base}/api/store/versions`,{signal:AbortSignal.timeout(5000)});
+    assert.equal(follow.status,200);
+    await follow.json();
+  }
+});
+
+test('参数形状预检（security L-6）：非法 skill/version 直接 404 统一形状，合法形状仍走库判定',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  for (const [skill,version] of [['Bad','1.0.0'],['a_b','1.0.0'],['con','1.0.0'],['ok-skill','01.0.0'],['ok-skill','1.0'],['ok-skill','v1.0.0']]) {
+    const missing=await yank(skill,version,{token:publisher});
+    assert.equal(missing.status,404,`${skill} ${version}`);
+    assert.deepEqual(await missing.json(),{error:'not_found',message:'未找到该版本。'});
+    const notes=await putNotes(skill,version,{notes:'x'},{token:publisher});
+    assert.equal(notes.status,404,`${skill} ${version} notes`);
+    assert.deepEqual(await notes.json(),{error:'not_found',message:'未找到该版本。'});
+  }
+  // 合法形状但不存在：同样 404（库判定路径不受预检影响）
+  assert.equal((await yank('ghost-skill','1.0.0',{token:publisher})).status,404);
+  assert.equal((await putNotes('ghost-skill','1.0.0',{notes:'x'},{token:publisher})).status,404);
+});
+
 // —— 真实 CLI 冒烟（任务 7 核心交付）：三版本 → 真实 hy unpublish → install 装出回落版 → status 展示 ——
 const CLI_BIN=process.env.HY_CLI_BIN||'C:\\Huanyu-Hibiki\\coding\\Huanyu-CLI\\bin\\hy.js';
 const cliSkip=()=> !testUrl?'TEST_DATABASE_URL 未设置，跳过真实 CLI 冒烟'

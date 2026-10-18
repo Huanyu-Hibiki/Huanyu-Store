@@ -1,6 +1,27 @@
+import { getCliTokenEmail } from "./device";
+import { isPublisher } from "./device-core.mjs";
+import { drainBody } from "./publish-core.mjs";
+
 /** 统一错误响应形状 {error: 机器可读码, message: 人类可读说明}，所有 API 路由复用；headers 可选（如 no-store）。 */
 export function errorResponse(status: number, error: string, message: string, headers?: Record<string, string>): Response {
   return Response.json({ error, message }, { status, headers });
+}
+
+/** 写路由早退响应（任务 5 不变式「早退必须先清空」的收口助手）：未消费的请求体有界丢弃
+ *  （不消费完就回响应会毒化 keep-alive 连接）；已被 json() 等消费过的自然跳过（再读会抛错）。 */
+export async function earlyResponse(request: Request, status: number, error: string, message: string): Promise<Response> {
+  if (request.body && !request.bodyUsed) await drainBody(request.body).catch(() => {});
+  return errorResponse(status, error, message, { "cache-control": "no-store" });
+}
+
+/** 写路由（publish/products/releases）共用鉴权前奏：Bearer + publisher 双门槛（quality LOW
+ *  收口四处重复）；401/403 早退统一走 earlyResponse（先清空体再回）。通过返回 null。 */
+export async function requirePublisher(request: Request): Promise<Response | null> {
+  const token = bearerToken(request);
+  const email = token ? await getCliTokenEmail(token) : null;
+  if (!email) return earlyResponse(request, 401, "unauthorized", "未登录或令牌无效");
+  if (!isPublisher(email, process.env.PUBLISHER_EMAILS)) return earlyResponse(request, 403, "not_a_publisher", "没有发布权限。");
+  return null;
 }
 
 /** CSRF 纵深：浏览器专用端点的 Origin 校验——Origin 缺失或与请求主机不一致一律拒。

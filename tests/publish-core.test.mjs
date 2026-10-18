@@ -67,9 +67,11 @@ test('validatePublishHeaders：X-Notes 解码后 ≤2000、控制字符拒绝、
   assert.equal(validatePublishHeaders({...base,notes:'%ZZ'}).ok,false,'坏百分号编码拒');
 });
 
-test('validatePublishHeaders：X-Notes 拒绝零宽与方向控制符（bidi 欺骗，security L-5）',()=>{
+test('validatePublishHeaders：X-Notes 拒绝零宽与方向控制符（bidi 欺骗，security L-5/L-2）',()=>{
   const base={name:'a-skill',version:'1.0.0',sha256:'a'.repeat(64)};
-  for (const evil of ['a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb']) {
+  // L-2 补漏四字符与 store-core CONTROL 同步：U+061C ALM、U+FEFF ZWNBSP、U+00AD 软连字符、U+180E 蒙古语 VS
+  for (const evil of ['a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb',
+    'a\u061cb','a\ufeffb','a\u00adb','a\u180eb']) {
     assert.equal(validatePublishHeaders({...base,notes:encodeURIComponent(evil)}).ok,false,JSON.stringify(evil));
   }
 });
@@ -89,7 +91,9 @@ test('validateNotes：字符串通过、空串归一 null；非字符串/超长/
   // 超长（与 X-Notes 同为解码后口径）
   assert.equal(validateNotes('x'.repeat(NOTES_MAX_LENGTH+1)).ok,false,'2001 拒');
   // 控制字符与 bidi 全套（CONTROL 同源）：ANSI 转义 / CR / 零宽 / 方向覆盖 / 行分隔 / 隔离符
-  for (const evil of ['a\x1b[31mb','a\rb','a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb'])
+  // + L-2 补漏（U+061C ALM、U+FEFF ZWNBSP、U+00AD 软连字符、U+180E 蒙古语 VS）
+  for (const evil of ['a\x1b[31mb','a\rb','a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb',
+    'a\u061cb','a\ufeffb','a\u00adb','a\u180eb'])
     assert.equal(validateNotes(evil).ok,false,JSON.stringify(evil));
 });
 

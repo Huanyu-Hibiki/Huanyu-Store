@@ -29,14 +29,35 @@ export function reservePort(){
  });
 }
 
+/** 端口是否可绑定（探测某端口的监听句柄是否已释放）。 */
+const portFree=(port)=>new Promise((resolve)=>{
+ const probe=createServer();
+ probe.once('error',()=>resolve(false)); // EADDRINUSE = 孙进程仍持有监听句柄
+ probe.listen(port,'127.0.0.1',()=>{ probe.close(()=>resolve(true)); });
+});
+
 // Windows 下须杀整棵进程树，否则 next dev 的子进程残留、端口句柄不释放。
-export function stopServer(child){
+/** 停 dev server 并等进程树死透：kill 后每 200ms 轮询「直接子进程已退 + 端口重新可绑定」
+ *  （taskkill 返回不代表树已消亡；残留孙进程持有 .next 单例锁与端口句柄，曾令后续测试文件
+ *  连锁假红——两审查方独立复现），上限 15 秒放弃并打印诊断（残留 pid 与清理提示）。 */
+export function stopServer(child,port){
  return new Promise((resolve)=>{
-  if (child.exitCode!==null) return resolve();
-  const guard=setTimeout(resolve,5000); // 兜底：进程树未如期退出也不挂死测试
-  child.once('exit',()=>{clearTimeout(guard);resolve();});
-  if (process.platform==='win32') spawn('taskkill',['/pid',String(child.pid),'/T','/F'],{stdio:'ignore'});
-  else child.kill('SIGTERM');
+  if (child.exitCode===null){
+   if (process.platform==='win32') spawn('taskkill',['/pid',String(child.pid),'/T','/F'],{stdio:'ignore'});
+   else child.kill('SIGTERM');
+  }
+  const deadline=Date.now()+15000;
+  (async()=>{
+   for(;;){
+    if (child.exitCode!==null&&(!port||await portFree(port))) return resolve();
+    if (Date.now()>deadline){
+     console.error(`[stopServer] dev server 进程树 15 秒内未退净（pid=${child.pid}${port?`，端口 ${port} 仍被占用`:''}）。`
+      +`残留进程持有 .next 单例锁与端口句柄会令后续测试文件连锁假红；请手动执行 taskkill /PID ${child.pid} /T /F 清理后重跑。`);
+     return resolve();
+    }
+    await sleep(200);
+   }
+  })();
  });
 }
 
@@ -63,7 +84,7 @@ export async function startDevServer(databaseUrl){
   try {
    const res=await fetch(base);
    await res.arrayBuffer(); // 就绪探测也须消费响应体，否则连接挂起、句柄泄漏
-   if (res.ok) return {base,stop:()=>stopServer(child)};
+   if (res.ok) return {base,stop:()=>stopServer(child,port)};
   } catch { /* 端口尚未就绪，继续轮询 */ }
   await sleep(500);
  }

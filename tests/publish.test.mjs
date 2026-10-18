@@ -336,7 +336,9 @@ test('版本数上限（security M-1）：200 版本后再发 409 version_limit�
   const blocked=await publishPackage({name:'cap-skill',version:'1.0.0',body:gz('over'),token:publisher});
   assert.equal(blocked.res.status,409,JSON.stringify(blocked.data));
   assert.equal(blocked.data.error,'version_limit');
-  assert.match(blocked.data.message,/200/);
+  // 文案与事实一致：配额按全部行（含 yanked）计，下架不释放额度（quality MEDIUM 修复）
+  assert.match(blocked.data.message,/版本数已达上限 200（下架不释放额度）/);
+  assert.doesNotMatch(blocked.data.message,/请先下架/,'不得再引导用户走「下架腾额度」的无效路径');
   const allowed=await publishPackage({name:'cap2-skill',version:'0.1.0',body:gz('edge'),token:publisher});
   assert.equal(allowed.res.status,200,JSON.stringify(allowed.data));
   assert.equal((await getVersions()).data.skills['cap2-skill'].history.length,200,'恰 200 版在库');

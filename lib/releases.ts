@@ -30,7 +30,7 @@ export async function storeRelease(input: {
       if (highest !== null && compareVersions(input.version, highest) < 0)
         return { ok: false as const, error: "version_regression", message: `${input.version} 低于已发布的最高版本 ${highest}，版本号只能递增。` };
       if (isReleaseCountLimited(rows.length))
-        return { ok: false as const, error: "version_limit", message: `该 skill 已有 ${rows.length} 个版本，达到上限 ${RELEASES_PER_SKILL_MAX}，请先下架旧版本再发布。` };
+        return { ok: false as const, error: "version_limit", message: `版本数已达上限 ${RELEASES_PER_SKILL_MAX}（下架不释放额度）。` };
       const blob = await input.write(input.skill, input.version, input.bytes);
       await tx`insert into releases (skill, version, sha256, size, notes, blob_path)
         values (${input.skill}, ${input.version}, ${input.sha256}, ${input.size}, ${input.notes}, ${blob.path})`;
