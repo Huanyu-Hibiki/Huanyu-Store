@@ -54,3 +54,19 @@ export async function listVersions(
   const catalogNames = products.flatMap((row) => [row.free_skill, row.paid_skill]).filter((name): name is string => Boolean(name));
   return { skills: versionsPayload(rows, catalogNames, urlFor) };
 }
+
+/** 版本下架（yank）：置 yanked=true；单行更新原子，无并发决策（latest 回落/占位是读端纯逻辑）。
+ *  幂等语义由行存在性承载：命中即 200（无论先前是否已下架），未知 (skill,version) → false（404）。
+ *  孤儿版本（不在 catalog）同样可下架——不查 products。 */
+export async function yankRelease(skill: string, version: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`update releases set yanked = true where skill = ${skill} and version = ${version} returning version`;
+  return rows.length > 0;
+}
+
+/** notes 修订：更新版本说明；未知 (skill,version) → false（404）。 */
+export async function updateReleaseNotes(skill: string, version: string, notes: string | null): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`update releases set notes = ${notes} where skill = ${skill} and version = ${version} returning version`;
+  return rows.length > 0;
+}

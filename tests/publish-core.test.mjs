@@ -9,7 +9,7 @@ import path from 'node:path';
 // test/fixture.js publish 参考实现的错误语义）。
 import {
   MAX_PACKAGE_BYTES, NOTES_MAX_LENGTH, RELEASES_PER_SKILL_MAX, isVersion, compareVersions,
-  validatePublishHeaders, readPackageBody, latestOf, versionsPayload, downloadUrlFor, isReleaseCountLimited,
+  validatePublishHeaders, validateNotes, readPackageBody, latestOf, versionsPayload, downloadUrlFor, isReleaseCountLimited,
 } from '../lib/publish-core.mjs';
 import { blobStore, storageKey } from '../lib/blob.mjs';
 
@@ -76,6 +76,21 @@ test('validatePublishHeaders：X-Notes 拒绝零宽与方向控制符（bidi 欺
 
 const streamOf=(bytes)=>new ReadableStream({
   start(controller){ for (const chunk of bytes) controller.enqueue(chunk); controller.close(); },
+});
+
+test('validateNotes：字符串通过、空串归一 null；非字符串/超长/控制字符（含 bidi）全拒（notes PUT 与 X-Notes 同源）',()=>{
+  // 合法值：多行文本放行（CONTROL 仅豁免 \n \t）
+  assert.deepEqual(validateNotes('修订说明：修复安装问题。\n第二行\t缩进'),
+    {ok:true,notes:'修订说明：修复安装问题。\n第二行\t缩进'});
+  assert.deepEqual(validateNotes(''),{ok:true,notes:null},'空串归一 null（清空说明与不带说明等价）');
+  assert.equal(validateNotes('x'.repeat(NOTES_MAX_LENGTH)).ok,true,'恰好 2000 放行');
+  // 值必须是字符串（body {notes: null/42/对象} 都拒——清空用空串）
+  for (const bad of [null,undefined,42,true,{},['x']]) assert.equal(validateNotes(bad).ok,false,JSON.stringify(bad));
+  // 超长（与 X-Notes 同为解码后口径）
+  assert.equal(validateNotes('x'.repeat(NOTES_MAX_LENGTH+1)).ok,false,'2001 拒');
+  // 控制字符与 bidi 全套（CONTROL 同源）：ANSI 转义 / CR / 零宽 / 方向覆盖 / 行分隔 / 隔离符
+  for (const evil of ['a\x1b[31mb','a\rb','a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb'])
+    assert.equal(validateNotes(evil).ok,false,JSON.stringify(evil));
 });
 
 test('readPackageBody：合法 gzip 流 → 字节与 sha256；魔数 1f 8b 强制',async()=>{
