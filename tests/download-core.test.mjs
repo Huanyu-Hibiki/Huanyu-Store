@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DOWNLOAD_WINDOW_MAX, DOWNLOAD_WINDOW_MS, resolveDownload, slidingWindowAllow } from '../lib/download-core.mjs';
+import { DOWNLOAD_MAP_KEY_MAX, DOWNLOAD_WINDOW_MAX, DOWNLOAD_WINDOW_MS, resolveDownload, slidingWindowAllow } from '../lib/download-core.mjs';
 import { SIGNED_URL_TTL_MS, attestUrl, verifyAttest } from '../lib/blob.mjs';
 
 const KEY='releases/demo-skill/1.0.0-ab12cd34ef56.tar.gz';
@@ -75,4 +75,21 @@ test('attestUrl/verifyAttest：假仓回环签名 URL 形状、TTL ≥10 分钟�
   assert.equal(verifyAttest(KEY,'not-a-number',1_500),false,'exp 非法拒');
   assert.equal(verifyAttest(KEY,String(1000+SIGNED_URL_TTL_MS+3_600_000),1_500),false,'远未来 exp 拒（有效期上限 = 签发 + TTL）');
   assert.equal(verifyAttest(null,null,1_500),false,'缺参拒');
+});
+
+test('verifyAttest：HIGH-1 实测复现的路径穿越形态全拒（尾缀分支不得放行含 / 的后缀）',()=>{
+  for (const key of ['releases/a/1.0.0.tar.gz./../../../../etc/passwd','releases/a/1.0.0.tar.gz.extra/../../escape']) {
+    assert.equal(verifyAttest(key,String(Date.now()+SIGNED_URL_TTL_MS)),false,JSON.stringify(key));
+  }
+});
+
+test('slidingWindowAllow：Map 键数上限——未超不重置、超限整窗重置后从零计数（quality M3）',()=>{
+  const big=new Map();
+  for (let i=0;i<DOWNLOAD_MAP_KEY_MAX;i++) big.set(`k${i}`,[9_000]);
+  assert.equal(slidingWindowAllow(big,'at-cap',9_500),true);
+  assert.equal(big.size,DOWNLOAD_MAP_KEY_MAX+1,'恰在上限不重置（新键照常计入）');
+  big.set('overflow',[9_000]);
+  assert.equal(slidingWindowAllow(big,'fresh',9_600),true,'重置后的请求放行');
+  assert.equal(big.size,1,'超上限触发整窗重置（best-effort 内存护栏，已注释登记）');
+  assert.deepEqual(big.get('fresh'),[9_600],'重置后从零计数');
 });

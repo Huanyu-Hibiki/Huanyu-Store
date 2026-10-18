@@ -247,15 +247,18 @@ test('storageKey：skill/version 形状内部断言，非法入参抛错',()=>{
 test('假存储的 put/signedUrl 拒绝不匹配键形状的对象键（security L-4 单测钉住）',async()=>{
   await withBlobEnv({},async()=>{
     const store=blobStore();
+    // 末两项 = HIGH-1 实测复现的穿越形态：尾缀分支曾以 (\..+) 放行含 / 的后缀，resolve 后逃出 fakeRoot
     for (const key of ['evil/path.tar.gz','releases/a/../../etc/passwd','releases/A/1.0.0-x.tar.gz',
-      'plain.txt','','releases/a/','releases/a/1.0.0-x.tar.gz/../../escape','releases/a/1.0.0-x.tgz']) {
+      'plain.txt','','releases/a/','releases/a/1.0.0-x.tar.gz/../../escape','releases/a/1.0.0-x.tgz',
+      'releases/a/1.0.0.tar.gz./../../../../etc/passwd','releases/a/1.0.0.tar.gz.extra/../../escape']) {
       await assert.rejects(()=>store.signedUrl(key,{base:'http://127.0.0.1:9'}),/Blob 键/,JSON.stringify(key));
+      await assert.rejects(()=>store.read(key),/Blob 键/,JSON.stringify(key));
     }
     // 缺 base 拒（回环 attest URL 无处可指）；合法键（随机后缀）与契约允许的多余尾缀形态放行
     await assert.rejects(()=>store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz'),/基址/);
     const signed=await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz',{base:'http://127.0.0.1:9'});
     assert.match(signed,/^http:\/\/127\.0\.0\.1:9\/api\/store\/blob-attest\?key=releases%2Fa-skill%2F1\.0\.0-abcd1234\.tar\.gz&exp=\d+$/);
-    assert.match(await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz.extra',{base:'http://127.0.0.1:9'}),/1\.0\.0-abcd1234\.tar\.gz\.extra&exp=\d+$/,'尾缀形态 (\..+)? 放行');
+    assert.match(await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz.extra',{base:'http://127.0.0.1:9'}),/1\.0\.0-abcd1234\.tar\.gz\.extra&exp=\d+$/,'尾缀形态 (\\.[^/]+) 放行');
   });
 });
 

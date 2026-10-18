@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -118,6 +118,7 @@ test('download 全矩阵：302/200 直出/402/404/400/401 + 发布字节对账 +
   assert.deepEqual(served.bytes,v2,'缺省版本 = latest（1.1.0），字节与发布时一致');
   assert.equal(sha256Of(served.bytes),sha256Of(v2));
   assert.equal(served.res.headers.get('content-type'),'application/gzip');
+  assert.equal(served.res.headers.get('x-content-type-options'),'nosniff','字节响应禁嗅探');
 
   // 匿名指定历史版本：302 → v1 字节（历史版本可下）
   const older=await download('matrix-free',{version:'1.0.0'});
@@ -131,6 +132,7 @@ test('download 全矩阵：302/200 直出/402/404/400/401 + 发布字节对账 +
   assert.equal(direct.status,200,'带令牌 → 200 直出');
   assert.equal(direct.headers.get('x-content-sha256'),sha256Of(v2));
   assert.equal(direct.headers.get('x-skill-version'),'1.1.0');
+  assert.equal(direct.headers.get('x-content-type-options'),'nosniff','字节响应禁嗅探');
   assert.equal(direct.headers.get('cache-control'),'no-store');
   assert.deepEqual(Buffer.from(await direct.arrayBuffer()),v2);
 
@@ -184,17 +186,65 @@ test('匿名下载限频：同 IP 60 次/分钟内放行、第 61 次 429、他 
   assert.equal((await download('rate-skill',{ip:'198.51.100.9'})).status,302,'正常频率的其他 IP 不受影响');
 });
 
+test('blob-attest 限频与统一 404：附件端点同享滑动窗口，全部 404 同文案（security M-1）',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  assert.equal((await publishPackage({name:'attest-skill',version:'1.0.0',body:gz('attest'),token:publisher})).res.status,200);
+  const location=(await download('attest-skill')).headers.get('location');
+  const ip='203.0.113.88';
+  for (let i=0;i<60;i++){
+    const res=await fetch(location,{headers:{'x-forwarded-for':ip}});
+    assert.equal(res.status,200,`attest 第 ${i+1} 次须放行`);
+    await res.arrayBuffer();
+  }
+  const blocked=await fetch(location,{headers:{'x-forwarded-for':ip}});
+  assert.equal(blocked.status,429,'attest 第 61 次 → 429');
+  assert.equal((await blocked.json()).error,'rate_limited');
+  assert.equal((await fetch(location,{headers:{'x-forwarded-for':'198.51.100.10'}})).status,200,'他 IP 不受影响');
+  // 统一 404（不再区分「链接无效」与「不存在」——不泄露链接有效性 oracle）
+  const badKey=await fetch(`${server.base}/api/store/blob-attest?key=evil&exp=${Date.now()+60_000}`);
+  const expired=await fetch(`${server.base}/api/store/blob-attest?key=${encodeURIComponent('releases/a/1.0.0-aaaaaaaaaaaa.tar.gz')}&exp=1000`);
+  for (const res of [badKey,expired]) {
+    assert.equal(res.status,404);
+    const data=await res.json();
+    assert.deepEqual(Object.keys(data).sort(),['error','message']);
+    assert.equal(data.error,'not_found');
+    assert.equal(data.message,'不存在该对象。','坏键与过期同文案');
+  }
+});
+
+test('download 200 直出的 read 失败包装：ENOENT → 404、其余 → 500 统一形状（不再裸抛）',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  assert.equal((await publishPackage({name:'wrap-skill',version:'1.0.0',body:gz('wrap'),token:publisher})).res.status,200);
+  const files=readdirSync(path.join(blobDir,'releases','wrap-skill'));
+  assert.equal(files.length,1);
+  const object=path.join(blobDir,'releases','wrap-skill',files[0]);
+  // ENOENT：落盘对象被移走 → 404 统一形状
+  rmSync(object);
+  const missing=await download('wrap-skill',{version:'1.0.0',token:publisher});
+  assert.equal(missing.status,404);
+  assert.deepEqual(await missing.json(),{error:'not_found',message:'不存在该对象。'});
+  // 其余读失败（对象位换成目录 → readFile EISDIR）→ 500 统一 JSON 形状
+  mkdirSync(object);
+  const broken=await download('wrap-skill',{version:'1.0.0',token:publisher});
+  assert.equal(broken.status,500);
+  const data=await broken.json().catch(()=>null);
+  assert.equal(data?.error,'internal','非 ENOENT 读失败按 500 统一形状回（不裸抛 HTML）');
+  assert.equal(typeof data?.message,'string');
+});
+
 // —— 真实 CLI 冒烟（任务 6 核心交付）：真实 hy publish 两版本 → 隔离沙箱 hy install → 版本对账 ——
 const CLI_BIN=process.env.HY_CLI_BIN||'C:\\Huanyu-Hibiki\\coding\\Huanyu-CLI\\bin\\hy.js';
 const cliSkip=()=> !testUrl?'TEST_DATABASE_URL 未设置，跳过真实 CLI 冒烟'
   :!existsSync(CLI_BIN)?`未找到 ${CLI_BIN}（可用 HY_CLI_BIN 指定），跳过真实 CLI 冒烟`:false;
 
 /** CLI 子进程：HOME/USERPROFILE/APPDATA/XDG 全部指向沙箱——宿主发现（hosts.js 的九个用户级根）
- *  与凭据目录（config.js）都从这些变量展开，绝不能碰本机真实目录。 */
+ *  与凭据目录（config.js）都从这些变量展开，绝不能碰本机真实目录；CODEX_HOME 是宿主表唯一的
+ *  env 覆盖项，开发机若设置过会把 codex 宿主根漏出沙箱，一并清除。 */
 function runCli(args,{token,sandbox,cwd}){
   const env={...process.env,HY_API:server.base,
     ...(sandbox?{USERPROFILE:sandbox.home,HOME:sandbox.home,APPDATA:sandbox.appdata,XDG_CONFIG_HOME:sandbox.xdg}:{})};
   delete env.CI;
+  delete env.CODEX_HOME;
   if (token===undefined) delete env.HY_TOKEN; else env.HY_TOKEN=token;
   const child=spawn(process.execPath,[CLI_BIN,...args],{cwd,env,stdio:['ignore','pipe','pipe'],windowsHide:true});
   let stdout='',stderr='';
