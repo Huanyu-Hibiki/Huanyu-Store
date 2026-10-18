@@ -62,7 +62,7 @@
 - **阻塞边**: 任务 3
 - **安全**: 是（鉴权·用户输入）
 
-### 任务 5: 版本发布——`hy publish` 全管道落私有 Blob，versions 可查
+### 任务 5: 版本发布——`hy publish` 全管道落私有 Blob，versions 可查 ✅ 完成（6ab545b + 审查修复 74cb45b：早退 drain/并发单调性 advisory lock/跨仓库契约闸门/版本数上限 200/SITE_ORIGIN/键自校验/bidi 拒绝，2026-10-18）
 - **交付**: 发布者用真实 `hy publish` 上传 tar.gz：通过全部校验（gzip 魔数、≤4MB、流式 sha256 与头一致、semver、409 族）后落入私有 Blob 仓并插入版本记录；`GET /api/store/versions` 返回 latest/history。
 - **验收标准**:
   - [ ] 错误语义齐：400 invalid_package（魔数/sha 不符/名字非法）、409 version_exists、409 低于 latest、413 too_large（>4MB，用 4.1MB 实测包验证）、403 not_a_publisher
