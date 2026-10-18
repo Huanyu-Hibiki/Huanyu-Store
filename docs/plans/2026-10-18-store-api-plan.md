@@ -84,7 +84,7 @@
 - **阻塞边**: 任务 5
 - **安全**: 是（下载边界·付费闸门）
 
-### 任务 7: 版本生命周期——yank 幂等下架、notes 修订、占位语义
+### 任务 7: 版本生命周期——yank 幂等下架、notes 修订、占位语义 ✅ 完成（ff62e38 + 审查修复 fd054ef：version_limit 文案/早退 drain+requirePublisher 收口/CONTROL 补漏/stopServer 等树退出（3 轮全量稳定）/参数预检，2026-10-18）
 - **交付**: 发布者 `hy unpublish` 下架版本（重复下架仍 200）、`notes` PUT 修订说明；下架后新安装 404、versions 历史保留、全部下架时 latest 占位。
 - **验收标准**:
   - [ ] yank 幂等（重复 DELETE 200 `{skill, version, yanked: true}`）；latest 回落到最高未下架版本
