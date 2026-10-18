@@ -55,7 +55,11 @@ export async function startDevServer(databaseUrl){
  const base=`http://127.0.0.1:${port}`;
  const deadline=Date.now()+120000;
  while(Date.now()<deadline){
-  if (child.exitCode!==null) throw new Error(`dev server 提前退出:\n${Buffer.concat(output).toString()}`);
+  if (child.exitCode!==null){
+   // 提前退出也要先杀整棵进程树再抛：否则残留的子进程/单例锁会让后续用例连锁假红
+   await stopServer(child);
+   throw new Error(`dev server 提前退出:\n${Buffer.concat(output).toString()}`);
+  }
   try {
    const res=await fetch(base);
    await res.arrayBuffer(); // 就绪探测也须消费响应体，否则连接挂起、句柄泄漏

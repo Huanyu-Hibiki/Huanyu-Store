@@ -1,15 +1,17 @@
 import { requestLoginCode } from "../../../../lib/auth";
-import { isValidEmail, normalizeEmail } from "../../../../lib/auth-core.mjs";
-import { errorResponse } from "../../../../lib/http";
+import { isValidEmail, normalizeEmail, normalizeIp } from "../../../../lib/auth-core.mjs";
+import { errorResponse, sameOrigin } from "../../../../lib/http";
 
 export const dynamic = "force-dynamic";
 
 /** 发验证码：统一成功文案——不回显验证码、不泄露该邮箱是否已注册。 */
 export async function POST(request: Request) {
+  if (!sameOrigin(request)) return errorResponse(403, "origin_forbidden", "请求来源校验失败");
   const body = (await request.json().catch(() => null)) as { email?: unknown } | null;
   const email = typeof body?.email === "string" ? normalizeEmail(body.email) : "";
   if (!isValidEmail(email)) return errorResponse(400, "invalid_email", "邮箱格式不正确");
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
+  // 信任边界：Vercel 平台覆写 x-forwarded-for（不可伪造）；自托管部署须由反代保证同语义
+  const ip = normalizeIp(request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown");
   const result = await requestLoginCode(email, ip);
   if (result.ok) return Response.json({ ok: true, message: "验证码已发送，请查收邮箱" });
   if (result.error === "rate_limited") return errorResponse(429, "rate_limited", "发送过于频繁，请稍后再试");
