@@ -307,3 +307,53 @@ test('真实 CLI 冒烟：hy product 注册后 hy list 可见（退出码 0）�
   assert.equal(event.error,'invalid_response');
   assert.equal(event.command,'product');
 });
+
+// —— 审查修复（security M-1/L-1、quality M1 M2 M3 M4）：写入端收紧与并发 ——
+
+test('写入端收紧端到端：repo/page 形状、控制字符、price 键集闭合全 400 且不落库',{skip},async()=>{
+  const token=await cliTokenOf('publisher@example.com');
+  for (const body of [
+    {repo:'ftp://example.com/x'},{repo:'github.com/a/b'},
+    {page:'http://evil.example/x'},{page:'//evil.example'},{page:'javascript:alert(1)'},{page:'store/x'},
+    {name:'标题\x1b[31m注入'},{summary:'行一\r行二'},
+    {prices:{lifetime:{amount:1,currency:'cny',bogus:'x'}}},
+    {prices:{['p'.repeat(33)]:{amount:1,currency:'cny'}}},
+  ]) {
+    const result=await putProduct('demo-skill',body,{token});
+    assert.equal(result.res.status,400,JSON.stringify(body));
+    assert.equal(result.data.error,'invalid_field',JSON.stringify(body));
+  }
+  assert.deepEqual((await getCatalog()).data,{products:[]},'全部拒绝不得落库');
+  // 合法 repo/page 照常放行并进目录
+  const ok=await putProduct('demo-skill',{repo:'https://github.com/user/repo',page:'/store/demo-skill/'},{token});
+  assert.equal(ok.res.status,200,JSON.stringify(ok.data));
+  assert.equal(ok.data.repo,'https://github.com/user/repo');
+  assert.equal(ok.data.page,'/store/demo-skill/');
+});
+
+test('M4 创建竞态：6 路并发注册不同 id 同 free 名，恰一个 200 其余 400，目录恰一行',{skip},async()=>{
+  const token=await cliTokenOf('publisher@example.com');
+  const results=await Promise.all([1,2,3,4,5,6].map((i)=>putProduct(`race-${i}`,{name:'竞态',free:'race-shared'},{token})));
+  const winners=results.filter((r)=>r.res.status===200);
+  assert.equal(winners.length,1,results.map((r)=>r.res.status).join(','));
+  for (const lost of results.filter((r)=>r.res.status!==200)) {
+    assert.equal(lost.res.status,400);
+    assert.equal(lost.data.error,'invalid_field');
+    assert.match(lost.data.message,/race-shared 已属于其他商品/);
+  }
+  const catalog=normalizeCatalog((await getCatalog()).data);
+  assert.equal(catalog.length,1,'败者不得落库');
+  assert.equal(catalog[0].free.skill,'race-shared');
+});
+
+test('M1 同商品并发合并不丢更新：两路并发各加一个价格方案，最终三方案齐全',{skip},async()=>{
+  const token=await cliTokenOf('publisher@example.com');
+  assert.equal((await putProduct('merge-skill',{name:'合并',prices:{lifetime:{amount:1,currency:'cny'}}},{token})).res.status,200);
+  const both=await Promise.all([
+    putProduct('merge-skill',{prices:{yearly:{amount:120,currency:'cny'}}},{token}),
+    putProduct('merge-skill',{prices:{monthly:{amount:12,currency:'cny'}}},{token}),
+  ]);
+  for (const r of both) assert.equal(r.res.status,200,JSON.stringify(r.data));
+  const catalog=normalizeCatalog((await getCatalog()).data);
+  assert.deepEqual(Object.keys(catalog[0].prices).sort(),['lifetime','monthly','yearly'],'并发合并不得丢失任一路的方案');
+});

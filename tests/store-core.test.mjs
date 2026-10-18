@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // 商品注册/合并更新的纯逻辑（对齐 CLI 端契约：skills.js isSkillName 规范名 + test/fixture.js 的
 // PUT products 参考实现——字段白名单、合并语义、配对冲突判定逐条同构）。
-import { applyProductUpdate, isCanonicalSkillName } from '../lib/store-core.mjs';
+import { applyProductUpdate, isCanonicalSkillName, PRICE_PLAN_MAX_LENGTH, PRICE_PLANS_MAX, PRICES_MAX_BYTES } from '../lib/store-core.mjs';
 
 test('isCanonicalSkillName：^[a-z0-9][a-z0-9-]*$ 且排除 Windows 保留名（对齐 CLI skills.js）', () => {
   for (const good of ['a', 'demo-skill', 'a-b2', '0start', 'com-tail', 'connect']) assert.equal(isCanonicalSkillName(good), true, good);
@@ -32,13 +32,15 @@ test('applyProductUpdate：请求体须为对象，未知字段拒绝', () => {
 
 test('applyProductUpdate：name/summary/repo/page 文本字段校验（非空 trim、≤500）', () => {
   const long = 'x'.repeat(501);
+  // 各字段的合法形状样本（repo/page 收紧后还需过 URL/路径形状校验，专项测试在后续用例）
+  const valid = { name: '合法文本', summary: '合法文本', repo: 'https://example.com/repo', page: '/store/a-skill/' };
   for (const field of ['name', 'summary', 'repo', 'page']) {
     for (const bad of ['', '   ', long, 42, null]) {
       const result = applyProductUpdate('a-skill', { [field]: bad }, null, []);
       assert.equal(result.ok, false, `${field}=${JSON.stringify(bad)}`);
       assert.match(result.message, new RegExp(`${field} 无效`));
     }
-    assert.equal(applyProductUpdate('a-skill', { [field]: '合法文本' }, null, []).ok, true, field);
+    assert.equal(applyProductUpdate('a-skill', { [field]: valid[field] }, null, []).ok, true, field);
   }
 });
 
@@ -143,4 +145,80 @@ test('applyProductUpdate：配对值与他商品冲突（id/free/paid 任一命�
   assert.equal(self.ok, false, 'free 与 paid 相同仍拒绝');
   const ok = applyProductUpdate('a-skill', { paid: 'a-pro' }, existing, [otherA, otherB]);
   assert.equal(ok.ok, true);
+});
+
+// —— 审查修复（security M-1 / quality M2 M3 / L-1）：写入端收紧项 ——
+
+test('增长上限常量导出（方案名 32 / 方案数 16 / 序列化 16KB）', () => {
+  assert.equal(PRICE_PLAN_MAX_LENGTH,32);
+  assert.equal(PRICE_PLANS_MAX,16);
+  assert.equal(PRICES_MAX_BYTES,16384);
+});
+
+test('prices 增长上限：方案名 ≤32、方案数 ≤16、序列化字节 ≤16KB，超限 400 语义', () => {
+  const plans=(n)=>Object.fromEntries(Array.from({length:n},(_,i)=>[`p${i}`,{amount:1,currency:'cny'}]));
+  // 方案名长度 33：正则合法但超长
+  const longPlan=applyProductUpdate('a-skill',{prices:{['p'.repeat(33)]:{amount:1,currency:'cny'}}},null,[]);
+  assert.equal(longPlan.ok,false);
+  assert.match(longPlan.message,/prices 无效/);
+  // 方案数 17：直接给足
+  const tooMany=applyProductUpdate('a-skill',{prices:plans(PRICE_PLANS_MAX+1)},null,[]);
+  assert.equal(tooMany.ok,false);
+  assert.match(tooMany.message,/prices 无效/);
+  // 合法边界：16 方案放行
+  assert.equal(applyProductUpdate('a-skill',{prices:plans(PRICE_PLANS_MAX)},null,[]).ok,true);
+  // 合并结果越限：既有 16 方案 + 新增 1 → 合并后 17 拒（即使本次只加方案没动别的）
+  const fatBase={id:'fat',name:'fat',summary:'',repo:null,page:null,free:{skill:'fat'},paid:null,prices:plans(PRICE_PLANS_MAX)};
+  const overflow=applyProductUpdate('fat',{prices:{extra:{amount:1,currency:'cny'}}},fatBase,[]);
+  assert.equal(overflow.ok,false);
+  assert.match(overflow.message,/prices 无效/);
+  // 既有 16 方案、本次不碰 prices → 不误伤
+  assert.equal(applyProductUpdate('fat',{summary:'x'},fatBase,[]).ok,true);
+  // 序列化字节超 16KB 的载荷整体拒绝（形状/字节任一分支，行为都是 400 prices 无效）
+  const huge=applyProductUpdate('a-skill',{prices:{big:{amount:1,currency:'cny',interval:'x'.repeat(20000)}}},null,[]);
+  assert.equal(huge.ok,false);
+  assert.match(huge.message,/prices 无效/);
+});
+
+test('文本字段拒绝 C0/C1 控制字符与 ANSI 转义，仅豁免 \n \t（notes 未来同规则）', () => {
+  for (const field of ['name','summary']) {
+    for (const bad of ['a\x00b','a\x1b[31mb','a\rb','a\x7fb','a\u0085b','a\u009fb']) {
+      const result=applyProductUpdate('a-skill',{[field]:bad},null,[]);
+      assert.equal(result.ok,false,`${field}=${JSON.stringify(bad)}`);
+      assert.match(result.message,new RegExp(`${field} 无效`));
+    }
+    // 换行/制表是合法的（说明文本要放多行）
+    assert.equal(applyProductUpdate('a-skill',{[field]:'第一行\n第二行\t缩进'},null,[]).ok,true,field);
+  }
+});
+
+test('page 形状：站内绝对路径 /^\/(?!\/)/，绝对 URL/协议相对/javascript: 全拒', () => {
+  const ok=applyProductUpdate('a-skill',{page:'/store/a-skill/'},null,[]);
+  assert.equal(ok.ok,true);
+  for (const bad of ['http://evil.example/x','//evil.example','javascript:alert(1)','store/x','','/\/evil',' /x']) {
+    const result=applyProductUpdate('a-skill',{page:bad},null,[]);
+    assert.equal(result.ok,false,JSON.stringify(bad));
+    assert.match(result.message,/page 无效/);
+  }
+});
+
+test('repo 形状：必须 http(s):// 完整 URL', () => {
+  for (const good of ['https://github.com/user/repo','http://example.com/a/b?c=d']) {
+    assert.equal(applyProductUpdate('a-skill',{repo:good},null,[]).ok,true,good);
+  }
+  for (const bad of ['ftp://example.com/x','github.com/user/repo','javascript:alert(1)','https://','http://','//example.com/x','example.com']) {
+    const result=applyProductUpdate('a-skill',{repo:bad},null,[]);
+    assert.equal(result.ok,false,JSON.stringify(bad));
+    assert.match(result.message,/repo 无效/);
+  }
+});
+
+test('price 键集闭合：键必须 ⊆ {amount, currency, interval}，未知键拒绝不透传落库', () => {
+  const bad=applyProductUpdate('a-skill',{prices:{lifetime:{amount:1,currency:'cny',bogus:'x'}}},null,[]);
+  assert.equal(bad.ok,false);
+  assert.match(bad.message,/prices 无效/);
+  const extra=applyProductUpdate('a-skill',{prices:{lifetime:{amount:1,currency:'cny',interval:null,extra:1}}},null,[]);
+  assert.equal(extra.ok,false);
+  assert.equal(applyProductUpdate('a-skill',{prices:{lifetime:{amount:1,currency:'cny',interval:null}}},null,[]).ok,true);
+  assert.equal(applyProductUpdate('a-skill',{prices:{lifetime:{amount:1,currency:'cny'}}},null,[]).ok,true);
 });
