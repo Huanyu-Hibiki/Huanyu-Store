@@ -83,14 +83,14 @@ releases(skill text, version text, sha256 char(64), size int, notes text null,
 - Web 端 code/verify/logout/session（**无密码**，grill-me Q2 拍板）：输邮箱 → `POST /api/auth/code` 经 Resend 从 `noreply@skills.huanyu.dev` 发 6 位验证码（10 分钟 TTL，哈希落库，单码尝试上限 5 次）；`POST /api/auth/verify` 通过即注册或登录，发 httpOnly+secure+lax cookie（30 天）。发信限频走 DB 计数（每邮箱 5 封/小时、每 IP 20 封/小时）——serverless 无共享内存的替代。发信域名 `skills.huanyu.dev` 在 Resend 验证、Cloudflare 加 SPF/DKIM（建议加 DMARC）。
 
 **发布端**
-- `POST /api/store/publish` 🔒 publisher，体 = tar.gz 二进制，头 `X-Skill-Name`/`X-Skill-Version`/`X-Content-SHA256`/可选 `X-Notes`（百分号编码 ≤2000 字符）。管道：鉴权（403 `not_a_publisher`）→ 名称/semver/sha 格式校验（400 `invalid_package`）→ 尺寸 ≤4MB（413 `too_large`）→ 流式 sha256 与头比对 + gzip 魔数（400 `invalid_package`）→ (skill,version) 已存在 409 `version_exists`；低于 latest 409 `version_regression` → Blob 上传（私有仓）→ 插库 → `{skill, version, sha256, size, url}`。幂等按 (skill,version) 唯一拒绝，不比对历史 sha（跨机器重打包字节不同得 409 属契约预期）。
+- `POST /api/store/publish` 🔒 publisher，体 = tar.gz 二进制，头 `X-Skill-Name`/`X-Skill-Version`/`X-Content-SHA256`/可选 `X-Notes`（百分号编码传输，**解码后** ≤2000 字符——任务 5 审查落定口径）。管道：鉴权（403 `not_a_publisher`）→ 名称/semver/sha 格式校验（400 `invalid_package`）→ 尺寸 ≤4MB（413 `too_large`）→ 流式 sha256 与头比对 + gzip 魔数（400 `invalid_package`）→ (skill,version) 已存在 409 `version_exists`；低于历史最高版本（含将来 yank 的版本，任务 5 审查落定——任务 7 引入 yank 后保持「历史最高」口径，与主键唯一性自洽）409 `version_regression`；每 skill 版本数上限 200（409 `version_limit`，任务 5 审查增长上限）→ Blob 上传（私有仓）→ 插库 → `{skill, version, sha256, size, url}`。幂等按 (skill,version) 唯一拒绝，不比对历史 sha（跨机器重打包字节不同得 409 属契约预期）。
 - `PUT /api/store/products/<skill>` 🔒 publisher：按 skill（= free 或 paid 规范名）合并更新 name/summary/repo/page/free/paid/prices，响应完整商品对象（catalog 形状）。删除方案/清空 summary 的语义二期评审（CLI 当前只能合并更新）。
 - `DELETE /api/store/releases/<skill>/<version>` 🔒 publisher：置 `yanked=true`，幂等 200 `{skill, version, yanked: true}`。
 - `PUT /api/store/releases/<skill>/<version>/notes` 🔒 publisher：体 `{notes}` → 更新说明。
 
 **消费端**
 - `GET /api/store/catalog` → `{products: [...]}`（契约容错数组/`{products}`/`{catalog}`，服务端固定 `{products}`）。
-- `GET /api/store/versions` → `{skills: {<name>: {latest, history: [{version, published_at, notes, yanked?}], sha256, download_url}}}`；history 版本降序；`latest` = 最高未 yank 版本，全部下架时保留最高版本占位（形状完整 + 全 yanked，CLI 显示「全部版本已下架」）；sha256/download_url 指向 latest。
+- `GET /api/store/versions` → `{skills: {<name>: {latest, history: [{version, published_at, notes, yanked?}], sha256, download_url}}}`；history 版本降序；`latest` = 最高未 yank 版本，全部下架时保留最高版本占位（形状完整 + 全 yanked，CLI 显示「全部版本已下架」）；sha256/download_url 指向 latest；catalog 里已注册但尚无任何发布的名字占位 `{latest:'0.0.0', history:[]}`（省略 sha256/download_url）——CLI versions() 对目录内每个名字必查条目形状，缺条目会令全部命令整体失败（任务 5 审查落定）。
 - `GET /api/store/download/<name>?version=&format=tar.gz` **重定向规则**：
   - 无 `Authorization` 头 + 免费版 → **302 → Blob 公开 URL**（此刻 CLI `redirect: 'follow'`）；
   - 带 `Authorization` 头（任何版本免费包）→ **绝不 302**（CLI 设了 `redirect: 'error'`），200 直出流 + `X-Content-SHA256` + `X-Skill-Version`；
@@ -131,6 +131,9 @@ releases(skill text, version text, sha256 char(64), size int, notes text null,
 | 11 | 注册开放 | 任何人可用真实邮箱注册（无发布权）；OTP + 限频防滥用 | 视滥用情况 |
 | 12 | 付费包发布 | 允许发布（私有存储），下载恒 402 直到二期接支付 | 二期 |
 | 13 | 过期数据 | 惰性过期（查询时比对），不做主动清理任务 | 数据量上来再加 cron |
+| 15 | URL 规范源 | `SITE_ORIGIN` 环境变量配置后 siteBase 一律用它（生产配 https://skills.huanyu.dev）；未配置回落 x-forwarded 头（信任 Vercel 覆写语义） | 自托管换反代时 |
+| 16 | tar.gz 不解析 | 服务端只验魔数/尺寸/摘要，不解析内容（CLI 侧预检对称兜底）；残余：非 CLI 消费者无保护、商店实质是 publisher 白名单把关的每对象 4MB 内容托管；免费包匿名下载的带宽放大由任务 6 下载限频缓解 | 出现滥用时再收紧 |
+| 17 | versions 增长 | 每 skill 版本数上限 200 封顶放大链；versions/catalog 全量输出无分页（目录即商品本体，规模受自然约束） | 商品数上百时 |
 | 14 | 发信域名 | `skills.huanyu.dev` 作为 Resend 发信域（DKIM 对该子域签名，声誉与根域隔离） | — |
 
 ## 契约评审清单对照（release-checklist 第 6 项，一期相关）
