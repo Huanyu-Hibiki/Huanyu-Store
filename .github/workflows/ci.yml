@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ubuntu 腿（全量锚点）：GitHub Actions 的 service container 只支持 Linux runner，
+  # 因此六格矩阵里只有这条腿起真 postgres 跑全量（集成测试含）。
+  # 库名/口令与本地 .env.local 同约定（postgres/dev/store_test），TEST_DATABASE_URL 两边同串。
+  linux:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: store_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # 集成测试按 TEST_DATABASE_URL 起服务与清场；DATABASE_URL 供下方迁移步直读（scripts/migrate.mjs）
+      TEST_DATABASE_URL: postgres://postgres:dev@localhost:5432/store_test
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/store_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      - run: node scripts/migrate.mjs
+      - run: npm test
+
+  # windows/macos 腿：service container 不支持非 Linux runner，不设 TEST_DATABASE_URL——
+  # DB 集成测试组按既有 skip 机制整组跳过（见各 tests/*.test.mjs 顶部）；真实 CLI 冒烟
+  # 用例在 CI 无 CLI 仓库时按 HY_CLI_BIN 探测不到同样跳过。单测 + check + lint 仍全量执行。
+  windows-macos:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      # 不走 `npm test`：Windows 上 npm 用 cmd.exe 跑脚本、不展开 tests/*.test.mjs，
+      # 且 Node 20 的 test runner 不自展开 glob（实测 20.20 报 Could not find）。
+      # 经 bash 展开等价执行 npm test 的同一命令行。
+      - run: node --test --test-concurrency=1 tests/*.test.mjs
+        shell: bash
