@@ -17,7 +17,7 @@
 
 ## 技术方案
 
-**方案 A：Next.js App Router route handlers + postgres.js 直写 SQL + @vercel/blob（私有仓）+ Resend 发信**（对比过 B Drizzle ORM / C 独立后端后选定：运行时依赖 `postgres` / `@vercel/blob` / `resend` 三个包；Neon Postgres 经 Vercel 一键接入，与已部署 Vercel 同体；`lib/` 纯模块可脱离运行时单测）。
+**方案 A：Next.js App Router route handlers + postgres.js 直写 SQL + @vercel/blob（私有仓）+ Resend 发信**（对比过 B Drizzle ORM / C 独立后端后选定：运行时依赖 `postgres` / `@vercel/blob` 两包，Resend 经 REST 直调不引 SDK——任务 2 实现落定，少一依赖且行为有测试锚定；Neon Postgres 经 Vercel 一键接入，与已部署 Vercel 同体；`lib/` 纯模块可脱离运行时单测）。
 
 约束与应对：
 
@@ -109,7 +109,7 @@ releases(skill text, version text, sha256 char(64), size int, notes text null,
 
 ## 测试策略
 
-- **单元（node:test，不依赖 DB/运行时）**：设备码状态机（pending/approved/denied/expired/slow_down）、验证码校验与发信限频、版本排序与 yank 回落/占位、catalog 契约映射、publish 管道校验（魔数/尺寸/semver/409 族）。Resend 不真发：`lib/email.ts` 定义发送接口，测试注入假发送器。
+- **单元（node:test，不依赖 DB/运行时）**：设备码状态机（pending/approved/denied/expired/slow_down）、验证码校验与发信限频、版本排序与 yank 回落/占位、catalog 契约映射、publish 管道校验（魔数/尺寸/semver/409 族）。Resend 不真发：`lib/email.ts` 定义发送接口，按 `RESEND_API_KEY` 有无双态切换（无密钥走假发送器，落 FAKE_MAIL_OUTBOX 供断言）——任务 2 实现落定的环境双态方案，替代构造注入。
 - **集成**：`next dev` + fetch 全流程（沿用 `verify-ui.mjs` 起 dev server 的模式）；DB 用独立测试库——CI 用 GitHub Actions postgres service container，本地 `DATABASE_URL` 指任意可达 PG。覆盖：验证码登录全流程、设备码授权全流程、发布→目录→版本→下载 302（签名 URL）/200（私读直出）双路径、yank 后 404 与占位。
 - **真联调冒烟**：`HY_API=http://localhost:3000`（CLI 契约允许 localhost HTTP）跑真实 `hy` 的 login→product→publish→install 闭环。
 - 既有 `npm run check`/`lint`/`test`/`test:ui` 全绿不回退。
