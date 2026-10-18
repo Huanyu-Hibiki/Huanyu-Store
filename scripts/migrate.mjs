@@ -7,7 +7,7 @@ const migrationsDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'..',
 
 /** 对目标库按文件名顺序应用未执行的迁移；每个迁移单独成事务并记入版本表，重复执行幂等。返回本次应用的版本列表。 */
 export async function migrate(connectionString){
- const sql=postgres(connectionString,{max:1});
+ const sql=postgres(connectionString,{max:1,onnotice:()=>{}}); // 幂等重跑时 42P07「已存在, skipping」NOTICE 无信息量，静默
  const applied=[];
  try{
   await sql`create table if not exists schema_migrations (version text primary key, applied_at timestamptz not null default now())`;

@@ -9,7 +9,10 @@ function getSql(): SqlClient {
   if (!client) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("缺少 DATABASE_URL 环境变量");
-    client = postgres(url);
+    // connect_timeout 短值：探针遇 TCP 黑洞必须快速失败，不能挂到函数超时（postgres.js 默认 30s）；
+    // idle_timeout/max_lifetime 显式化：Neon 冷启动 + serverless 短进程场景，空闲连接尽早归还、
+    // 到龄换代，避免复用被连接池中间层已掐断的失效连接。
+    client = postgres(url, { connect_timeout: 3, idle_timeout: 20, max_lifetime: 1800 });
   }
   return client;
 }

@@ -19,7 +19,7 @@
 ## 任务列表
 
 ### 任务 1: 数据库基座——迁移可执行、探针可查、测试骨架可起服务
-- **交付**: 运维者对空库执行幂等迁移一次铺齐 6 张表（users/login_codes/web_sessions/cli_tokens/device_grants/products/releases）；`GET /api/health` 返回数据库连通状态；集成测试骨架（起 dev server + 独立测试库 + 每用例清场）跑通第一条对探针的断言。
+- **交付**: 运维者对空库执行幂等迁移一次铺齐 7 张表（users/login_codes/web_sessions/cli_tokens/device_grants/products/releases + schema_migrations 版本表）；`GET /api/health` 返回数据库连通状态；集成测试骨架（起 dev server + 独立测试库 + 每用例清场）跑通第一条对探针的断言。
 - **验收标准**:
   - [ ] 迁移脚本重复执行不报错（幂等）；带版本记录表
   - [ ] `/api/health` 无库连接时显式报错形状、有库时 200
