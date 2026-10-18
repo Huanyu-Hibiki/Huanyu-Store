@@ -315,12 +315,18 @@ test('并发版本单调性（quality M2）：并发发 2.0.0 与 1.5.0，恰一
     const skill=`race-skill-${round}`;
     assert.equal((await publishPackage({name:skill,version:'1.0.0',body:gz('seed'),token:publisher})).res.status,200);
     const [high,low]=await Promise.all([postRaw(skill,gz('high'),'2.0.0'),postRaw(skill,gz('low'),'1.5.0')]);
+    // advisory 锁保证「锁序=插入序」，两种结局都单调一致：2.0.0 先拿锁→[200,409]；
+    // 1.5.0 先拿锁→它当时合法（最高 1.0.0），随后 2.0.0 仍更高→[200,200]。（CI linux(20) 实测出现过后者）
     const statuses=[high.status,low.status].sort();
-    assert.deepEqual(statuses,[200,409],`第 ${round} 轮并发两版本必须恰一进一拒：2.0.0→${high.status} / 1.5.0→${low.status}`);
+    assert.ok(statuses.every((x)=>x===200)||statuses.join()==='200,409',
+      `第 ${round} 轮并发结局必须单调一致：2.0.0→${high.status} / 1.5.0→${low.status}`);
     const rejected=high.status===409?high:low;
-    assert.equal(rejected.data.error,'version_regression');
+    if (statuses.join()==='200,409') assert.equal(rejected.data.error,'version_regression');
     const entry=(await getVersions()).data.skills[skill];
-    assert.deepEqual(entry.history.map((item)=>item.version),['2.0.0','1.0.0'],`第 ${round} 轮：2.0.0 在库、1.5.0 必被拒`);
+    // 最终历史必须是两种合法结局之一，且永不允许「低版本排在高版本之后」的倒序
+    const versions=entry.history.map((item)=>item.version);
+    assert.ok(JSON.stringify(versions)==='["2.0.0","1.0.0"]'||JSON.stringify(versions)==='["2.0.0","1.5.0","1.0.0"]',
+      `第 ${round} 轮最终历史必须单调：${JSON.stringify(versions)}`);
   }
 });
 
