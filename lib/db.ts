@@ -1,11 +1,11 @@
 import postgres from "postgres";
 
-type SqlClient = ReturnType<typeof postgres>;
+export type SqlClient = ReturnType<typeof postgres>;
 
 let client: SqlClient | null = null;
 
 /** 惰性单例：首次查询时才按 DATABASE_URL 建连，无库环境在 import 阶段不崩，探针可显式报告。 */
-function getSql(): SqlClient {
+export function getSql(): SqlClient {
   if (!client) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("缺少 DATABASE_URL 环境变量");

@@ -1092,3 +1092,20 @@ footer{border-top-color:#ffffff20;color:#92998b}
 /* Native hidden replaces Alpine x-show without changing the approved layout. */
 [hidden]{display:none!important}
 
+/* /cli 页：验证码登录（任务 3 将叠加设备码确认区），沿用站点暗面与纸签视觉语言。 */
+.cli-shell{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:40px 20px}
+.cli-card{position:relative;background:#151a21;border:1px solid #4b4b49;padding:30px 33px 33px;width:min(430px,100%);box-shadow:0 30px 100px #0008}
+.cli-topline{display:flex;gap:13px;align-items:center;color:#afaaa0;font:11px var(--mono);letter-spacing:1px}
+.cli-seal{border:1px solid #ba3224;color:#ba3224;font:22px var(--serif);padding:0 5px}
+.cli-card h2{font:500 27px/1.4 var(--serif);margin:20px 0 8px;letter-spacing:1px}
+.cli-description{font-size:13px;color:#a9adb3;margin:0 0 20px;line-height:1.7}
+.cli-email{font:13px var(--mono);color:#e5e2d8;margin:0 0 16px}
+.cli-field{margin-bottom:17px}
+.cli-field label{display:block;font-size:13px;color:#d4d3cc;margin-bottom:8px}
+.cli-field input{width:100%;height:45px;padding:0 13px;border:1px solid #444b55;background:#0e131a;color:#f0eee6;font-size:16px;border-radius:0}
+.cli-field input::placeholder{color:#8c95a2}
+.cli-device-slot{border:1px dashed #4b4b49;padding:14px 16px;margin:0 0 20px;font-size:13px;color:#8c95a2;line-height:1.7}
+.cli-error{font-size:13px;color:#e2a396;border:1px solid #7a3a2d;padding:9px 12px;margin:16px 0 0;line-height:1.6}
+.cli-link{font-size:12px;color:#a9adb3;margin-top:14px;display:inline-block;text-decoration:underline;text-underline-offset:3px}
+.cli-card code{font-family:var(--mono);font-size:12px}
+
