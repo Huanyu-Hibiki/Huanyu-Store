@@ -39,7 +39,7 @@
 - **阻塞边**: 任务 1
 - **安全**: 是（认证·用户输入·密钥）
 
-### 任务 3: 设备码授权——真实 `hy login` 对 localhost 完成
+### 任务 3: 设备码授权——真实 `hy login` 对 localhost 完成 ✅ 完成（cce439b + 审查修复 1ecc0bf：签发限频/时钟统一/防钓鱼回显/POSIX 冒烟隔离，2026-10-18）
 - **交付**: 发布者在终端跑真实 `hy login`（`HY_API=http://localhost:3000`）：CLI 拿到设备码 → 浏览器打开 `/cli` 确认页（已登录态下显示 user_code，确认/拒绝）→ CLI 轮询换到 `hy_` 令牌 → `me()` 返回 email/publisher。
 - **验收标准**:
   - [ ] device 响应六字段齐全，`expires_in`=600/`interval`=5 单位秒
@@ -51,7 +51,7 @@
 - **阻塞边**: 任务 2
 - **安全**: 是（认证·令牌）
 
-### 任务 4: 商品注册与目录——`hy product` 注册后 catalog 公开可见
+### 任务 4: 商品注册与目录——`hy product` 注册后 catalog 公开可见 ✅ 完成（ddd3a2b，2026-10-18。真实 hy product 完整注册依赖 /api/store/versions——CLI product 流程在 PUT 前必取版本表做 known 预检，该端点随任务 5 交付；冒烟已用断言钉住边界，任务 5 落地后翻转为退出 0）
 - **交付**: 发布者用真实 `hy product` 注册/合并更新商品（名称/摘要/仓库/页面/免费与付费配对/定价），任何客户端 `GET /api/store/catalog` 立即看到契约形状的完整目录。
 - **验收标准**:
   - [ ] 非 publisher 调用 403；未登录 401；无令牌 401
