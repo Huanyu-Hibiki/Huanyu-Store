@@ -192,6 +192,22 @@ test('文本字段拒绝 C0/C1 控制字符与 ANSI 转义，仅豁免 \n \t（n
   }
 });
 
+test('文本字段拒绝零宽与方向控制符（bidi 欺骗/不可见注入，security L-5）', () => {
+  // U+200B 零宽空格、U+200F/U+202E 方向覆盖（RTL 欺骗）、U+2028/2029 行/段分隔、U+2066-U+2069 隔离符
+  for (const field of ['name','summary']) {
+    for (const bad of ['a\u200bb','a\u200fb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u2069b']) {
+      const result=applyProductUpdate('a-skill',{[field]:bad},null,[]);
+      assert.equal(result.ok,false,`${field}=${JSON.stringify(bad)}`);
+      assert.match(result.message,new RegExp(`${field} 无效`));
+    }
+  }
+  // repo/page 收紧项共用 CONTROL，同一集合生效
+  assert.equal(applyProductUpdate('a-skill',{repo:'https://example.com/a\u202eb'},null,[]).ok,false);
+  assert.equal(applyProductUpdate('a-skill',{page:'/store/a\u200bb/'},null,[]).ok,false);
+  // 中日韩正文与全角标点不受影响
+  assert.equal(applyProductUpdate('a-skill',{summary:'说明：中文、English 与 123。'},null,[]).ok,true);
+});
+
 test('page 形状：站内绝对路径 /^\/(?!\/)/，绝对 URL/协议相对/javascript: 全拒', () => {
   const ok=applyProductUpdate('a-skill',{page:'/store/a-skill/'},null,[]);
   assert.equal(ok.ok,true);

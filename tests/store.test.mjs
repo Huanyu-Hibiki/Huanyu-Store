@@ -322,6 +322,11 @@ test('真实 CLI 冒烟：hy product 注册后 hy list 可见（退出码 0）�
   assert.equal(event.skill,'smoke-orphan-skill');
   assert.equal(event.product.free.skill,'smoke-orphan-skill');
   assert.equal(event.product.summary,'孤儿发布后注册。');
+  // quality LOW：CLI 退出 0 之外的服务端事实核对——catalog 公开回读确认商品真落库
+  const catalog=normalizeCatalog((await getCatalog()).data);
+  const registered=catalog.find((item)=>[item.id,item.free?.skill,item.paid?.skill].includes('smoke-orphan-skill'));
+  assert.ok(registered,'hy product 成功后 catalog 必须有该商品');
+  assert.equal(registered.summary,'孤儿发布后注册。');
 });
 
 // —— 审查修复（security M-1/L-1、quality M1 M2 M3 M4）：写入端收紧与并发 ——

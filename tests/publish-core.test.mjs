@@ -8,10 +8,10 @@ import path from 'node:path';
 // 发布管道的纯逻辑（对齐 CLI 契约：skills.js isVersion 严格 semver、client.js publishResponse 五字段、
 // test/fixture.js publish 参考实现的错误语义）。
 import {
-  MAX_PACKAGE_BYTES, NOTES_MAX_LENGTH, isVersion, compareVersions, validatePublishHeaders,
-  readPackageBody, latestOf, versionsPayload, downloadUrlFor,
+  MAX_PACKAGE_BYTES, NOTES_MAX_LENGTH, RELEASES_PER_SKILL_MAX, isVersion, compareVersions,
+  validatePublishHeaders, readPackageBody, latestOf, versionsPayload, downloadUrlFor, isReleaseCountLimited,
 } from '../lib/publish-core.mjs';
-import { blobStore } from '../lib/blob.mjs';
+import { blobStore, storageKey } from '../lib/blob.mjs';
 
 const sha256Of=(bytes)=>createHash('sha256').update(bytes).digest('hex');
 
@@ -65,6 +65,13 @@ test('validatePublishHeaders：X-Notes 解码后 ≤2000、控制字符拒绝、
   assert.equal(validatePublishHeaders({...base,notes:encodeURIComponent('a\rb')}).ok,false,'CR 拒（CONTROL 规则仅豁免 \\n \\t）');
   assert.equal(validatePublishHeaders({...base,notes:encodeURIComponent('第一行\n第二行\t缩进')}).ok,true,'换行/制表放行');
   assert.equal(validatePublishHeaders({...base,notes:'%ZZ'}).ok,false,'坏百分号编码拒');
+});
+
+test('validatePublishHeaders：X-Notes 拒绝零宽与方向控制符（bidi 欺骗，security L-5）',()=>{
+  const base={name:'a-skill',version:'1.0.0',sha256:'a'.repeat(64)};
+  for (const evil of ['a\u200bb','a\u202eb','a\u202ab','a\u2028b','a\u2029b','a\u2066b','a\u200fb']) {
+    assert.equal(validatePublishHeaders({...base,notes:encodeURIComponent(evil)}).ok,false,JSON.stringify(evil));
+  }
 });
 
 const streamOf=(bytes)=>new ReadableStream({
@@ -201,6 +208,53 @@ test('配置 BLOB_READ_WRITE_TOKEN 时选真仓门面（不在本测试真调网
     const store=blobStore();
     assert.equal(typeof store.put,'function');
     assert.equal(typeof store.signedUrl,'function','签名 URL 能力留接口（任务 6 download 消费）');
+  });
+});
+
+test('readPackageBody：魔数跨分片边界——首分片恰 1 字节 0x1f，次分片 0x8b 起',async()=>{
+  const body=gzipSync(Buffer.from('split magic'));
+  const read=await readPackageBody(streamOf([body.subarray(0,1),body.subarray(1)]));
+  assert.equal(read.ok,true);
+  assert.equal(read.sha256,sha256Of(body));
+  const readOneByte=await readPackageBody(streamOf([body.subarray(0,1)]));
+  assert.equal(readOneByte.ok,false,'单字节 0x1f 无法确认魔数，整包拒');
+  const badSecond=await readPackageBody(streamOf([Buffer.from([0x1f]),Buffer.from([0x00,0x01])]));
+  assert.equal(badSecond.ok,false);
+  assert.equal(badSecond.error,'invalid_package');
+  assert.match(badSecond.message,/gzip/);
+});
+
+test('版本数上限常量与判定（security M-1）：RELEASES_PER_SKILL_MAX=200，count≥200 即拒',()=>{
+  assert.equal(RELEASES_PER_SKILL_MAX,200);
+  assert.equal(isReleaseCountLimited(0),false);
+  assert.equal(isReleaseCountLimited(199),false);
+  assert.equal(isReleaseCountLimited(200),true);
+  assert.equal(isReleaseCountLimited(5000),true);
+});
+
+// —— Blob 键自校验（security L-4）——
+
+test('storageKey：skill/version 形状内部断言，非法入参抛错',()=>{
+  assert.match(storageKey('demo-skill','1.0.0'),/^releases\/demo-skill\/1\.0\.0-[0-9a-f]{8,}\.tar\.gz$/);
+  for (const skill of ['Bad','a/b','','con','..']) {
+    assert.throws(()=>storageKey(skill,'1.0.0'),/skill/,JSON.stringify(skill));
+  }
+  for (const version of ['1.0','01.0.0','x','1.0.0/evil','']) {
+    assert.throws(()=>storageKey('a-skill',version),/版本/,JSON.stringify(version));
+  }
+});
+
+test('假存储的 put/signedUrl 拒绝不匹配键形状的对象键（security L-4 单测钉住）',async()=>{
+  await withBlobEnv({},async()=>{
+    const store=blobStore();
+    for (const key of ['evil/path.tar.gz','releases/a/../../etc/passwd','releases/A/1.0.0-x.tar.gz',
+      'plain.txt','','releases/a/','releases/a/1.0.0-x.tar.gz/../../escape','releases/a/1.0.0-x.tgz']) {
+      await assert.rejects(()=>store.signedUrl(key),/Blob 键/,JSON.stringify(key));
+    }
+    // 合法键（随机后缀）与契约允许的多余尾缀形态（(\..+)? 分支）放行
+    const signed=await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz');
+    assert.match(signed,/[\\/]releases[\\/]a-skill[\\/]1\.0\.0-abcd1234\.tar\.gz$/);
+    assert.match(await store.signedUrl('releases/a-skill/1.0.0-abcd1234.tar.gz.extra'),/tar\.gz\.extra$/);
   });
 });
 

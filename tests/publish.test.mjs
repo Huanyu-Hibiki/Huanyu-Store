@@ -6,6 +6,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
+import postgres from 'postgres';
 import { migrate } from '../scripts/migrate.mjs';
 import { loadLocalEnv, resetDatabase, startDevServer } from './helpers.mjs';
 
@@ -16,6 +18,8 @@ process.env.PUBLISHER_EMAILS='publisher@example.com';
 delete process.env.BLOB_READ_WRITE_TOKEN; // 集成测试一律走假 Blob 存储
 const blobDir=mkdtempSync(path.join(tmpdir(),'huanyu-store-blob-'));
 process.env.FAKE_BLOB_DIR=blobDir;
+// security L-1：本文件全部 download_url/publish.url 断言经 SITE_ORIGIN 规范源闸门
+process.env.SITE_ORIGIN='https://origin.example';
 
 const outboxDir=mkdtempSync(path.join(tmpdir(),'huanyu-store-publish-mail-'));
 const outbox=path.join(outboxDir,'outbox.jsonl');
@@ -257,6 +261,93 @@ test('versions 与 CLI 语义对齐：catalog 名字必有条目（未发布占�
   assert.equal(skills['shop-skill'].latest,'1.0.0');
   assert.deepEqual(skills['shop-pro'],{latest:'0.0.0',history:[]},'未发布名字占位过 CLI 校验');
   assert.equal(skills['orphan-skill'].latest,'0.3.0','孤儿条目对 CLI 可见（product 预检）');
+});
+
+// —— 审查修复：quality M1+security L-3 / M2 / M-1 / L-1 ——
+
+test('早退路径清空请求体：401/403/头形状 400 早退后连接可复用（quality M1+security L-3）',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  const reader=await cliTokenOf('reader@example.com');
+  const body=gz('x'.repeat(512*1024));
+  const streamBody=()=>new ReadableStream({start(controller){
+    for (let offset=0;offset<body.length;offset+=64*1024) controller.enqueue(body.subarray(offset,offset+64*1024));
+    controller.close();
+  }});
+  // 三早退路径全带流式体（响应先于体完成）：未消费完就回响应会毒化 keep-alive 连接
+  const cases=[
+    {headers:{},status:401,error:'unauthorized'},
+    {headers:{authorization:`Bearer ${reader}`},status:403,error:'not_a_publisher'},
+    {headers:{'x-skill-name':'Bad',authorization:`Bearer ${publisher}`},status:400,error:'invalid_package'},
+  ];
+  for (const testCase of cases){
+    const rejected=await fetch(`${server.base}/api/store/publish`,{
+      method:'POST',duplex:'half',
+      headers:{'content-type':'application/gzip','x-skill-name':'drain-skill','x-skill-version':'1.0.0',
+        'x-content-sha256':sha256Of(body),...testCase.headers},
+      body:streamBody(),
+    });
+    assert.equal(rejected.status,testCase.status,JSON.stringify(testCase));
+    assert.equal((await rejected.json()).error,testCase.error);
+    // 不变量钉住：早退已清空体 → 紧跟同连接池的请求 5s 内完成（否则 undici 悬挂到 300s headersTimeout）
+    const follow=await fetch(`${server.base}/api/store/versions`,{signal:AbortSignal.timeout(5000)});
+    assert.equal(follow.status,200);
+    await follow.json();
+  }
+  assert.deepEqual((await getVersions()).data,{skills:{}},'早退的版本不得落库');
+});
+
+test('并发版本单调性（quality M2）：并发发 2.0.0 与 1.5.0，恰一个 200 一个 409 version_regression',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  // node:http 裸 socket 各起一条连接：fetch 可能复用同一 keep-alive 连接把两请求排队成串行，
+  // 竞态窗口就消失——裸连接保证两请求在服务端真正同时落地
+  const postRaw=(skill,body,version)=>new Promise((resolve,reject)=>{
+    const req=httpRequest(new URL('/api/store/publish',server.base),{method:'POST',headers:{
+      'content-type':'application/gzip','x-skill-name':skill,'x-skill-version':version,
+      'x-content-sha256':sha256Of(body),authorization:`Bearer ${publisher}`}},(res)=>{
+      let raw=''; res.setEncoding('utf8'); res.on('data',(chunk)=>raw+=chunk);
+      res.on('end',()=>resolve({status:res.statusCode,data:JSON.parse(raw)}));
+    });
+    req.on('error',reject);
+    req.end(body);
+  });
+  // 多轮（新 skill 各一轮）暴露偶发的交错：无锁时低版本可能赶在高版本插入前通过预检
+  for (let round=1;round<=3;round++){
+    const skill=`race-skill-${round}`;
+    assert.equal((await publishPackage({name:skill,version:'1.0.0',body:gz('seed'),token:publisher})).res.status,200);
+    const [high,low]=await Promise.all([postRaw(skill,gz('high'),'2.0.0'),postRaw(skill,gz('low'),'1.5.0')]);
+    const statuses=[high.status,low.status].sort();
+    assert.deepEqual(statuses,[200,409],`第 ${round} 轮并发两版本必须恰一进一拒：2.0.0→${high.status} / 1.5.0→${low.status}`);
+    const rejected=high.status===409?high:low;
+    assert.equal(rejected.data.error,'version_regression');
+    const entry=(await getVersions()).data.skills[skill];
+    assert.deepEqual(entry.history.map((item)=>item.version),['2.0.0','1.0.0'],`第 ${round} 轮：2.0.0 在库、1.5.0 必被拒`);
+  }
+});
+
+test('版本数上限（security M-1）：200 版本后再发 409 version_limit；199 时第 200 版放行',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  const sql=postgres(testUrl,{max:1});
+  try{
+    await sql`insert into releases (skill, version, sha256, size, notes, blob_path)
+      select 'cap-skill', '0.0.'||g, ${'0'.repeat(64)}, 1, null, 'releases/cap-skill/seed-x.tar.gz' from generate_series(1,200) g`;
+    await sql`insert into releases (skill, version, sha256, size, notes, blob_path)
+      select 'cap2-skill', '0.0.'||g, ${'0'.repeat(64)}, 1, null, 'releases/cap2-skill/seed-x.tar.gz' from generate_series(1,199) g`;
+  } finally { await sql.end({timeout:5}); }
+  const blocked=await publishPackage({name:'cap-skill',version:'1.0.0',body:gz('over'),token:publisher});
+  assert.equal(blocked.res.status,409,JSON.stringify(blocked.data));
+  assert.equal(blocked.data.error,'version_limit');
+  assert.match(blocked.data.message,/200/);
+  const allowed=await publishPackage({name:'cap2-skill',version:'0.1.0',body:gz('edge'),token:publisher});
+  assert.equal(allowed.res.status,200,JSON.stringify(allowed.data));
+  assert.equal((await getVersions()).data.skills['cap2-skill'].history.length,200,'恰 200 版在库');
+});
+
+test('SITE_ORIGIN 规范源（security L-1）：配置后 publish.url 与 versions.download_url 一律用规范前缀',{skip},async()=>{
+  const publisher=await cliTokenOf('publisher@example.com');
+  const result=await publishPackage({name:'origin-skill',version:'1.0.0',body:gz('o'),token:publisher});
+  assert.equal(result.res.status,200);
+  assert.equal(result.data.url,'https://origin.example/api/store/download/origin-skill?version=1.0.0&format=tar.gz');
+  assert.equal((await getVersions()).data.skills['origin-skill'].download_url,result.data.url);
 });
 
 // —— 真实 CLI 冒烟（任务 3/4 模式：隔离 APPDATA/XDG + HY_TOKEN 直连 dev server）——
