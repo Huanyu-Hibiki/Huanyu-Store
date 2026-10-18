@@ -73,7 +73,7 @@
 - **阻塞边**: 任务 4
 - **安全**: 是（鉴权·上传内容校验）
 
-### 任务 6: 免费版安装闭环——真实 `hy install` 装进本机
+### 任务 6: 免费版安装闭环——真实 `hy install` 装进本机 ✅ 完成（d07f8df + 审查修复 8d58eaf：blob-attest 路径穿越(HIGH)/attest 限频与统一404/匿名限频语义/键数上限/nosniff/read 包装，2026-10-18）
 - **交付**: 消费者 `HY_API=http://localhost:3000 hy install <免费skill>` 端到端成功：CLI 打 download 端点 → 服务端 302 到短时签名 URL（无令牌）或 200 直出（带令牌）→ CLI 校验 sha256 → 装进本机宿主目录。
 - **验收标准**:
   - [ ] 无 Authorization 免费请求 → 302 → 签名 URL（短 TTL），CLI `redirect: follow` 语义吻合
