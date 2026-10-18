@@ -94,7 +94,7 @@
 - **阻塞边**: 任务 6
 - **安全**: 是（鉴权变更）
 
-### 任务 8: 联调冒烟与上线收尾——生产域名全闭环 ✅ 8a 完成（d113568 + 审查修复 69a6162：CI 六格矩阵/service container 仅 Linux 故集成测试在 ubuntu 腿全量、win/mac 腿靠既有 skip 机制优雅降级（spec 审查认定诚实达成）；smoke.mjs 九步全链路自清理两遍 PASS；README 服务端章节。**8b 用户平台部分待办**：Vercel 四密钥配置 + Neon 生产迁移 + 推送部署 + 生产真实 CLI 验证，2026-10-18）
+### 任务 8: 联调冒烟与上线收尾——生产域名全闭环 ✅ 8a 完成（d113568 + 审查修复 69a6162：CI 六格矩阵/service container 仅 Linux 故集成测试在 ubuntu 腿全量、win/mac 腿靠既有 skip 机制优雅降级（spec 审查认定诚实达成）；smoke.mjs 九步全链路自清理两遍 PASS；README 服务端章节。**8b 已完成（2026-10-18）**：Neon 生产库迁移 4/4、Vercel 环境变量（DATABASE_URL/BLOB_READ_WRITE_TOKEN/RESEND_API_KEY/SITE_ORIGIN/PUBLISHER_EMAILS）、Resend 双域名验证（根域+skills 子域，实测发信 200）、推送部署、CI 六格矩阵首跑全绿、生产真实 CLI 闭环（login→product→publish→install 全部退出码 0，sha256 对账一致）。过程中真仓首测暴露并修复 presign 缺 access 的 undefined 主机缺陷（a5b476c，契约单测钉住）。测试商品已 yank 并清行，发布者账号保留）
 - **交付**: CI 六格矩阵绿（含 postgres service）；一条冒烟脚本跑完 login→product→publish→install→yank 全链路；Vercel 生产环境四密钥齐套后，真实 CLI 对 `https://skills.huanyu.dev` 完成发布与安装。
 - **验收标准**:
   - [ ] CI：windows/macos/ubuntu × Node 20/22，单测 + 集成（service postgres + 测试库迁移 + 清场）全绿
