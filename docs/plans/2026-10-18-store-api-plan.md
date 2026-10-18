@@ -94,7 +94,7 @@
 - **阻塞边**: 任务 6
 - **安全**: 是（鉴权变更）
 
-### 任务 8: 联调冒烟与上线收尾——生产域名全闭环
+### 任务 8: 联调冒烟与上线收尾——生产域名全闭环 ✅ 8a 完成（d113568 + 审查修复 69a6162：CI 六格矩阵/service container 仅 Linux 故集成测试在 ubuntu 腿全量、win/mac 腿靠既有 skip 机制优雅降级（spec 审查认定诚实达成）；smoke.mjs 九步全链路自清理两遍 PASS；README 服务端章节。**8b 用户平台部分待办**：Vercel 四密钥配置 + Neon 生产迁移 + 推送部署 + 生产真实 CLI 验证，2026-10-18）
 - **交付**: CI 六格矩阵绿（含 postgres service）；一条冒烟脚本跑完 login→product→publish→install→yank 全链路；Vercel 生产环境四密钥齐套后，真实 CLI 对 `https://skills.huanyu.dev` 完成发布与安装。
 - **验收标准**:
   - [ ] CI：windows/macos/ubuntu × Node 20/22，单测 + 集成（service postgres + 测试库迁移 + 清场）全绿
