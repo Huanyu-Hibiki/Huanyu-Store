@@ -2,10 +2,23 @@ import { cookies } from "next/headers";
 import { getSessionEmail } from "../../../../lib/auth";
 import { SESSION_COOKIE } from "../../../../lib/auth-core.mjs";
 import { normalizeUserCode } from "../../../../lib/device-core.mjs";
-import { decideDeviceGrant } from "../../../../lib/device";
+import { decideDeviceGrant, getGrantClientInfo } from "../../../../lib/device";
 import { errorResponse, sameOrigin } from "../../../../lib/http";
 
 export const dynamic = "force-dynamic";
+
+const NO_STORE = { "cache-control": "no-store" } as const;
+
+/** 确认卡的申请方回显：?code=<user_code> → pending grant 的 CLI 自述（非机密，见 getGrantClientInfo）；
+ *  未知/过期统一模糊 404。GET 非状态变更，不设 Origin 门槛。 */
+export async function GET(request: Request) {
+  const raw = new URL(request.url).searchParams.get("code");
+  const userCode = raw ? normalizeUserCode(raw) : null;
+  if (!userCode) return errorResponse(404, "not_found", "设备码不存在或已过期", NO_STORE);
+  const info = await getGrantClientInfo(userCode);
+  if (!info) return errorResponse(404, "not_found", "设备码不存在或已过期", NO_STORE);
+  return Response.json(info, { headers: NO_STORE });
+}
 
 /** 设备授权确认（浏览器专用）：Web 会话 + 同源双门槛；
  *  user_code 未知/过期/已判定统一模糊 404，不泄露 grant 状态。 */

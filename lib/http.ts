@@ -17,10 +17,10 @@ export function sameOrigin(request: Request): boolean {
   }
 }
 
-/** 站点基址（协议+主机，无路径）：优先平台/反代控制的 x-forwarded-*，本地回落 http + Host。
- *  生成 verification_uri 用；与 sameOrigin 同理不信任 request.url。 */
+/** 站点基址（协议+主机，无路径）：优先平台/反代控制的 x-forwarded-*，本地回落 http + Host；
+ *  反代链可能给逗号列表，取第一个。生成 verification_uri 用；与 sameOrigin 同理不信任 request.url。 */
 export function siteBase(request: Request): string {
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(",")[0].trim();
   const proto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim() || "http";
   return `${proto}://${host}`;
 }

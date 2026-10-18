@@ -17,7 +17,7 @@ const expectedColumns={
  login_codes:['attempts','code_hash','created_at','email','expires_at','ip','used_at'],
  web_sessions:['created_at','expires_at','id','token_hash','user_id'],
  cli_tokens:['created_at','id','last_used_at','revoked_at','token_hash','user_id'],
- device_grants:['created_at','device_code_hash','expires_at','interval_seconds','last_poll_at','status','user_code','user_id'],
+ device_grants:['client_name','created_at','device_code_hash','expires_at','interval_seconds','ip','last_poll_at','platform','status','user_code','user_id'],
  products:['created_at','free_skill','id','name','page','paid_skill','prices','repo','summary','updated_at'],
  releases:['blob_path','notes','published_at','sha256','size','skill','version','yanked'],
 };

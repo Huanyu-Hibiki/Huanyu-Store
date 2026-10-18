@@ -13,6 +13,8 @@ export default function CliPage() {
   return fromUrl?fromUrl.toUpperCase():"";
  });
  const [deviceResult,setDeviceResult]=useState<"approved"|"denied"|null>(null);
+ // 申请方自述（防钓鱼回显）：随输入完整成形时查询，code 字段用于过期守卫（改码后旧回显不残留）
+ const [clientInfo,setClientInfo]=useState<{code:string;client_name:string|null;platform:string|null}|null>(null);
  const [error,setError]=useState<string|null>(null);
  const [busy,setBusy]=useState(false);
 
@@ -22,6 +24,16 @@ export default function CliPage() {
    .then(async(res)=>{if(res.ok) setSessionEmail((await res.json()).email);})
    .catch(()=>{});
  },[]);
+
+ // 申请方回显：设备码补齐 8 位（含/不含连字符）时查询 pending grant 的 client_name/platform
+ useEffect(()=>{
+  if(deviceCode.replace(/[^A-Za-z0-9]/g,"").length!==8) return;
+  let cancelled=false;
+  fetch(`/api/cli/approve?code=${encodeURIComponent(deviceCode)}`)
+   .then(async(res)=>{if(!cancelled&&res.ok) setClientInfo({code:deviceCode,...await res.json()});})
+   .catch(()=>{});
+  return()=>{cancelled=true;};
+ },[deviceCode]);
 
  async function call(path:string,body:unknown):Promise<{ok:boolean;message?:string;email?:string;status?:string}>{
   setBusy(true);
@@ -82,6 +94,10 @@ export default function CliPage() {
     <div className="cli-device-slot">
      <h3>终端设备授权</h3>
      <p>核对终端（<code>hy login</code>）显示的设备码后确认授权。</p>
+     {clientInfo&&clientInfo.code===deviceCode
+      ?<p>申请方：{clientInfo.client_name??'未知'}（{clientInfo.platform??'未知'}）</p>
+      :null}
+     <p>仅确认你自己终端上显示的设备码；他人请你确认的，拒绝。</p>
      {deviceResult?(deviceResult==="approved"
       ?<p>已授权，请回到终端继续登录。</p>
       :<p>已拒绝本次授权，终端将停止登录。</p>)
@@ -106,8 +122,8 @@ export default function CliPage() {
     </form>:<form onSubmit={verify}>
      <div className="cli-field"><label htmlFor="code">验证码（已发送至 {email.trim().toLowerCase()}）</label>
       <input id="code" name="code" value={code} onChange={(e)=>setCode(e.target.value)} inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoComplete="one-time-code" placeholder="6 位数字" disabled={busy} /></div>
-      <button className="submit-button" type="submit" disabled={busy}><span>{busy?"登录中…":"登录"}</span><span>→</span></button>
-      <button className="cli-link" type="button" onClick={()=>{setStage("email");setCode("");setError(null);}} disabled={busy}>换个邮箱</button>
+     <button className="submit-button" type="submit" disabled={busy}><span>{busy?"登录中…":"登录"}</span><span>→</span></button>
+     <button className="cli-link" type="button" onClick={()=>{setStage("email");setCode("");setError(null);}} disabled={busy}>换个邮箱</button>
     </form>}
    </>}
    {error&&<p className="cli-error" role="alert">{error}</p>}

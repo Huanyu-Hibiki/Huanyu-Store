@@ -116,6 +116,79 @@ test('device 签发：六字段齐全、单位秒、device_code 哈希落库、u
  assert.match(page.headers.get('content-type')||'',/text\/html/);
 });
 
+test('H-1/M-1 设备签发限频：每 IP 10 次/小时、全局日预算 2000，超限 429 统一形状',{skip},async()=>{
+ const issue=(headers)=>post('/api/cli/device',{client_name:'hy-test',platform:'test'},{headers});
+ // 同 IP 已 9 次 → 放行（第 10 次落库后达限）
+ await withSql((sql)=>sql`insert into device_grants (device_code_hash,user_code,ip,expires_at)
+  select 'seed-ip-'||g,'SEEDIP'||g,'203.0.113.7',now()+interval '10 minutes' from generate_series(1,9) g`);
+ const ok=await issue({'x-forwarded-for':'203.0.113.7:51234'});
+ assert.equal(ok.res.status,200);
+ // 已 10 次 → 429，且不落新行
+ const blocked=await issue({'x-forwarded-for':'203.0.113.7'});
+ assert.equal(blocked.res.status,429);
+ assert.deepEqual(Object.keys(blocked.data).sort(),['error','message']);
+ assert.equal(blocked.data.error,'rate_limited');
+ const count=await withSql((sql)=>sql`select count(*)::int as n from device_grants where ip='203.0.113.7'`);
+ assert.equal(count[0].n,10,'超限请求不得落库');
+ // 新 IP 但全局日预算已满 → 429（per-key 维度为 0，只有全局兜底能拦）
+ await withSql((sql)=>sql`insert into device_grants (device_code_hash,user_code,ip,expires_at)
+  select 'seed-daily-'||g,'SEEDDY'||g,'198.51.100.'||g,now()+interval '10 minutes' from generate_series(1,2000) g`);
+ const global=await issue({'x-forwarded-for':'203.0.113.99'});
+ assert.equal(global.res.status,429);
+ assert.equal(global.data.error,'rate_limited');
+});
+
+test('M-1 终态清扫：签发顺带清理过期超 1 小时的 grant（防从不轮询的行无界膨胀）',{skip},async()=>{
+ await withSql((sql)=>sql`insert into device_grants (device_code_hash,user_code,expires_at)
+  values ('stale-hash','STALE-CODE',now()-interval '2 hours')`);
+ const {res}=await post('/api/cli/device',{client_name:'hy-test',platform:'test'});
+ assert.equal(res.status,200,'清扫不得阻塞正常签发');
+ const rows=await withSql((sql)=>sql`select device_code_hash from device_grants`);
+ assert.ok(!rows.some((row)=>row.device_code_hash==='stale-hash'),'超 1 小时的过期行应被清扫');
+ // 刚过期未满 1 小时的行不动（仍在 24h 计数窗口内，由轮询路径自清理）
+ await withSql((sql)=>sql`insert into device_grants (device_code_hash,user_code,expires_at)
+  values ('fresh-stale-hash','FRESH-STALE',now()-interval '30 minutes')`);
+ await post('/api/cli/device',{client_name:'hy-test',platform:'test'});
+ const keep=await withSql((sql)=>sql`select 1 from device_grants where device_code_hash='fresh-stale-hash'`);
+ assert.equal(keep.length,1,'未满 1 小时的过期行不清扫');
+});
+
+test('M-2 申请方自述：client_name/platform 落库、超长 400、GET approve 回显 pending grant 信息',{skip},async()=>{
+ const issued=await post('/api/cli/device',{client_name:'kabuto@dev',platform:'win32'});
+ assert.equal(issued.res.status,200);
+ const [row]=await withSql((sql)=>sql`select client_name,platform from device_grants where user_code=${issued.data.user_code}`);
+ assert.equal(row.client_name,'kabuto@dev');
+ assert.equal(row.platform,'win32');
+ // 长度上限 128：超长快速失败，不落库
+ const long='x'.repeat(129);
+ const bad=await post('/api/cli/device',{client_name:long,platform:'win32'});
+ assert.equal(bad.res.status,400);
+ assert.equal(bad.data.error,'invalid_request');
+ const badPlatform=await post('/api/cli/device',{client_name:'ok',platform:long});
+ assert.equal(badPlatform.res.status,400);
+ // 确认页数据源：pending 且未过期 → {client_name, platform}；未知/过期 → 404 模糊形状
+ const info=await fetch(`${server.base}/api/cli/approve?code=${issued.data.user_code}`);
+ assert.equal(info.status,200);
+ assert.deepEqual(await info.json(),{client_name:'kabuto@dev',platform:'win32'});
+ assert.equal(info.headers.get('cache-control'),'no-store');
+ const ghost=await fetch(`${server.base}/api/cli/approve?code=ABCD-2345`);
+ assert.equal(ghost.status,404);
+ assert.deepEqual(Object.keys(await ghost.json()).sort(),['error','message']);
+ await withSql((sql)=>sql`update device_grants set expires_at = now() - interval '1 second' where user_code=${issued.data.user_code}`);
+ assert.equal((await fetch(`${server.base}/api/cli/approve?code=${issued.data.user_code}`)).status,404);
+});
+
+test('LOW 路由加固：device_code 超长 128 快速失败；多值 x-forwarded-host 取第一个',{skip},async()=>{
+ const long=await post('/api/cli/token',{device_code:'x'.repeat(129)});
+ assert.equal(long.res.status,400);
+ assert.equal(long.data.error,'invalid_request');
+ // 反代链场景：x-forwarded-host 可能是逗号列表，取第一个（与 sameOrigin 的 Host 基准一致性）
+ const {res,data}=await post('/api/cli/device',{client_name:'hy-test',platform:'test'},{headers:{'x-forwarded-host':`public.example, ${new URL(server.base).host}`}});
+ assert.equal(res.status,200);
+ assert.equal(data.verification_uri,'http://public.example/cli');
+ assert.equal(data.verification_uri_complete,`http://public.example/cli?code=${data.user_code}`);
+});
+
 test('token 错误族：pending/slow_down/denied/expired_token 四码齐、终态行惰性清理',{skip},async()=>{
  // 未知 device_code → expired_token
  const unknown=await post('/api/cli/token',{device_code:generateDeviceCode()});
@@ -283,11 +356,15 @@ const cliSkip=()=> !testUrl?'TEST_DATABASE_URL 未设置，跳过真实 CLI 冒�
  :!existsSync(CLI_BIN)?`未找到 ${CLI_BIN}（可用 HY_CLI_BIN 指定），跳过真实 CLI 冒烟`:false;
 
 test('真实 CLI 冒烟：hy login 对 localhost 完成 device→web 登录→approve→token，退出码 0 且带 email',{skip:cliSkip()},async()=>{
- // 隔离 APPDATA（win32 配置路径读 env.APPDATA），不污染本机真实配置；
+ // 配置路径隔离：win32 读 env.APPDATA，POSIX 读 env.XDG_CONFIG_HOME，两路都注入临时目录，不污染本机真实配置；
  // ComSpec 指向不存在路径让「开浏览器」快速失败（等价无浏览器环境，不在开发机弹浏览器页），CLI 照常轮询。
  // Windows 环境键名大小写不敏感：须先删净两种写法再赋唯一键，否则真实 COMSPEC 抢先生效。
  const appdata=mkdtempSync(path.join(tmpdir(),'huanyu-cli-appdata-'));
- const env={...process.env,HY_API:server.base,APPDATA:appdata};
+ const xdg=mkdtempSync(path.join(tmpdir(),'huanyu-cli-xdg-'));
+ const configFile=process.platform==='win32'
+  ?path.join(appdata,'huanyu','config.json')
+  :path.join(xdg,'huanyu','config.json');
+ const env={...process.env,HY_API:server.base,APPDATA:appdata,XDG_CONFIG_HOME:xdg};
  delete env.HY_TOKEN; // 环境令牌会短路设备码流程
  delete env.CI;       // CI 模式禁用交互登录
  delete env.COMSPEC; delete env.ComSpec;
@@ -315,7 +392,12 @@ test('真实 CLI 冒烟：hy login 对 localhost 完成 device→web 登录→ap
  child.stderr.setEncoding('utf8');
  child.stderr.on('data',(chunk)=>stderr.push(chunk));
  const exited=new Promise((resolve)=>child.once('exit',(code)=>resolve(code)));
- const timeout=(label)=>new Promise((_,reject)=>setTimeout(()=>reject(new Error(`${label} 超时`)),60_000));
+ // 竞速败方定时器：unref 不挂事件循环，finally 再 clearTimeout 兜底
+ const timers=[];
+ const timeout=(label)=>new Promise((_,reject)=>{
+  const timer=setTimeout(()=>reject(new Error(`${label} 超时`)),60_000);
+  timers.push(timer); timer.unref?.();
+ });
  try{
   const device=await Promise.race([deviceSeen,timeout('device 签发')]);
   assert.match(device.user_code,USER_CODE_RE);
@@ -334,8 +416,8 @@ test('真实 CLI 冒烟：hy login 对 localhost 完成 device→web 登录→ap
   assert.equal(login.status,'complete');
   assert.equal(login.email,email);
   assert.match(login.token_prefix,/^hy_/);
-  // CLI 落盘凭证（隔离 APPDATA）：token 直接过 me()，白名单对真实令牌生效
-  const config=JSON.parse(readFileSync(path.join(appdata,'huanyu','config.json'),'utf8'));
+  // CLI 落盘凭证（按平台走隔离的 APPDATA/XDG 路径）：token 直接过 me()，白名单对真实令牌生效
+  const config=JSON.parse(readFileSync(configFile,'utf8'));
   assert.equal(config.email,email);
   assert.equal(config.api,server.base);
   assert.match(config.token,/^hy_[A-Za-z0-9_-]{43}$/);
@@ -343,7 +425,9 @@ test('真实 CLI 冒烟：hy login 对 localhost 完成 device→web 登录→ap
   assert.equal(me.res.status,200);
   assert.deepEqual(me.data,{email,subscriptions:[],publisher:true});
  }finally{
+  for(const timer of timers) clearTimeout(timer);
   await stopServer(child); // 已退出时是 no-op，异常时兜底杀进程树
   rmSync(appdata,{recursive:true,force:true});
+  rmSync(xdg,{recursive:true,force:true});
  }
 });
