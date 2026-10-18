@@ -31,6 +31,18 @@ export const skills: Skill[] = [
     }
   },
   {
+    id: 'pulsehub', title: '获客闭环', category: '增长与获客', listed: true,
+    description: '连接内容触达、线索识别与转化跟进，推进有方向的需求对话。',
+    keywords: ['获客', '增长', '线索', '转化', '跟进', '对话'],
+    editions: ['开源基础版', '专业授权'],
+    preview: {
+      inputLabel: '读者回应示例', input: '我预算也只有一万，应该先做什么？',
+      note: '先了解问题，再进入方案，让一次回应成为清楚的需求。',
+      outputLabel: '沟通准备示例', title: ['先说说你的产品，', '为谁解决什么问题？'],
+      paragraphs: ['继续确认产品与受众、预算与时间、当前卡点。', '需求匹配后，整理沟通纪要与方案范围。']
+    }
+  },
+  {
     id: 'github-renovation', title: 'GitHub 装修', category: '品牌与定位', listed: true,
     description: '为开源项目编写专业 README、搭建同名 profile 主页，并优化仓库元数据与 SEO。',
     keywords: ['GitHub', 'README', '开源', 'profile', '主页', 'SEO'],
