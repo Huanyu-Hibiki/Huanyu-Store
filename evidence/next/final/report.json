@@ -1,0 +1,281 @@
+[
+  {
+    "file": "idle-1440x900.png",
+    "state": "idle",
+    "size": "1440x900",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "register-1440x900.png",
+    "state": "register",
+    "size": "1440x900",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "idle-390x844.png",
+    "state": "idle",
+    "size": "390x844",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "register-390x844.png",
+    "state": "register",
+    "size": "390x844",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": [
+      {
+        "rule": "contrastLow",
+        "label": "文字对比度不达标（正文低于 4.5:1，大字低于 3:1）",
+        "count": 1,
+        "examples": [
+          "a.primary-action「浏览技能 ↓」（4.22:1）"
+        ]
+      }
+    ]
+  },
+  {
+    "file": "idle-1440x900-@2x.png",
+    "state": "idle",
+    "size": "1440x900",
+    "zoom": 2,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "idle-390x844-@2x.png",
+    "state": "idle",
+    "size": "390x844",
+    "zoom": 2,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": []
+  },
+  {
+    "file": "motion-probe-browse",
+    "state": "idle",
+    "size": "1440x900",
+    "zoom": 1,
+    "group": "browse",
+    "motion": {
+      "load": {
+        "elements": 6,
+        "loops": 0,
+        "maxMove": 18,
+        "maxSize": 0.038,
+        "maxOpacity": 1,
+        "top": [
+          {
+            "el": "h1#hero-title",
+            "move": 13,
+            "size": 0,
+            "opacity": 1,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "p.hero-description",
+            "move": 13,
+            "size": 0,
+            "opacity": 1,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "div.hero-actions",
+            "move": 13,
+            "size": 0,
+            "opacity": 1,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "p.byline",
+            "move": 0,
+            "size": 0,
+            "opacity": 1,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "img",
+            "move": 18,
+            "size": 0.038,
+            "opacity": 0,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "section#skills.skill-catalog.store-catalog",
+            "move": 15,
+            "size": 0,
+            "opacity": 0,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          }
+        ]
+      },
+      "steps": {
+        "elements": 2,
+        "loops": 0,
+        "maxMove": 99,
+        "maxSize": 0.128,
+        "maxOpacity": 0.47,
+        "top": [
+          {
+            "el": "img",
+            "move": 99,
+            "size": 0.128,
+            "opacity": 0.47,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          },
+          {
+            "el": "div#installation.license-body",
+            "move": 11,
+            "size": 0,
+            "opacity": 0,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          }
+        ]
+      },
+      "hero": {
+        "elements": 1,
+        "loops": 0,
+        "maxMove": 414,
+        "maxSize": 0.141,
+        "maxOpacity": 0.46,
+        "top": [
+          {
+            "el": "img",
+            "move": 414,
+            "size": 0.141,
+            "opacity": 0.46,
+            "loop": false,
+            "sources": [
+              "js:style"
+            ]
+          }
+        ],
+        "layers": 1
+      },
+      "scroll": {
+        "elements": 0,
+        "loops": 0,
+        "maxMove": 0,
+        "maxSize": 0,
+        "maxOpacity": 0,
+        "top": [],
+        "scrollable": true
+      }
+    },
+    "issues": [
+      "滚动：没有检测到随滚动出现的变化；落地页、品牌页、发布页和展览页需要一段滚动叙事"
+    ]
+  },
+  {
+    "file": "motion-entry-end.jpg",
+    "state": "idle",
+    "size": "1440x900",
+    "zoom": 1,
+    "group": "entry",
+    "issues": [],
+    "frames": {
+      "start": {
+        "file": "motion-entry-start.jpg",
+        "source": "Page.screencastFrame",
+        "timeMs": 306
+      },
+      "mid": {
+        "file": "motion-entry-mid.jpg",
+        "source": "Page.screencastFrame",
+        "timeMs": 1121
+      },
+      "end": {
+        "file": "motion-entry-end.jpg",
+        "source": "Page.captureScreenshot",
+        "timeMs": 1952
+      }
+    },
+    "sampling": {
+      "mode": "entry"
+    },
+    "durationMs": 1952,
+    "consistency": {
+      "status": "matched",
+      "reference": "motion-entry-end.jpg",
+      "different": false,
+      "changedPixels": 0,
+      "maxTilePixels": 0,
+      "pixelRatio": 0
+    }
+  },
+  {
+    "file": "motion-browse-end.jpg",
+    "state": "idle",
+    "size": "1440x900",
+    "zoom": 1,
+    "group": "browse",
+    "issues": [],
+    "frames": {
+      "start": {
+        "file": "motion-browse-start.jpg",
+        "source": "Page.captureScreenshot",
+        "timeMs": 562
+      },
+      "mid": {
+        "file": "motion-browse-mid.jpg",
+        "source": "Page.screencastFrame",
+        "timeMs": 611
+      },
+      "end": {
+        "file": "motion-browse-end.jpg",
+        "source": "Page.captureScreenshot",
+        "timeMs": 2344
+      }
+    },
+    "sampling": {
+      "mode": "action",
+      "step": 1,
+      "action": "click",
+      "raw": "click #product-toggle-oracle-bone"
+    },
+    "durationMs": 2344,
+    "consistency": {
+      "status": "matched",
+      "reference": "motion-browse-end.jpg",
+      "different": false,
+      "changedPixels": 0,
+      "maxTilePixels": 0,
+      "pixelRatio": 0
+    }
+  }
+]

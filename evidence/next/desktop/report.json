@@ -1,0 +1,26 @@
+[
+  {
+    "file": "page.png",
+    "state": null,
+    "size": "1440x900",
+    "zoom": 1,
+    "animationWaitMs": 0,
+    "issues": [],
+    "lint": [],
+    "compare": {
+      "file": "page-compare.png",
+      "overall": 0,
+      "cells": {
+        "左上": 0,
+        "中上": 0,
+        "右上": 0,
+        "左中": 0,
+        "正中": 0,
+        "右中": 0,
+        "左下": 0,
+        "中下": 0,
+        "右下": 0
+      }
+    }
+  }
+]

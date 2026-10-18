@@ -1,0 +1,19 @@
+{
+  "checks": [
+    {
+      "run": 1,
+      "status": "passed"
+    },
+    {
+      "run": 2,
+      "status": "passed"
+    },
+    {
+      "run": 3,
+      "status": "passed"
+    }
+  ],
+  "mobile": "passed",
+  "clipboardFailure": "passed",
+  "storageFailure": "passed"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "huanyu-skills-draft",
+  "version": "0.1.0",
+  "private": true,
+  "description": "焕羽 Skills 最新确认视觉与前台原型",
+  "scripts": {
+    "dev": "python -m http.server 3000 --bind 127.0.0.1",
+    "check": "node --check app.js && node --check skills.js",
+    "test": "node --test tests/catalog.test.cjs"
+  }
+}
