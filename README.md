@@ -108,10 +108,12 @@ CI（`.github/workflows/ci.yml`）：windows/macos/ubuntu × Node 20/22 六格�
 
 ### 运维备忘
 
-- **un-yank 手工恢复**（安全审查 L-4 登记的 runbook，API 无恢复端点）：误下架需恢复时直连库执行
+- **un-yank 手工恢复**（任务 7 安全审查登记的 runbook，API 无恢复端点）：误下架需恢复时直连库执行
   ```sql
   update releases set yanked = false where skill = '<skill>' and version = '<version>';
   ```
   恢复后 `versions` 的 latest 按版本号自然回升；该操作绕过 API 审计面，执行前核对目标行。
 - **过期数据惰性清理**（设计假设 #13）：验证码/会话/令牌/设备码在查询时比对 `expires_at`/`revoked_at` 判定，无定时清理任务；`login_codes` 与 `device_grants` 的过期行由发码/签发路径顺带清扫，其余历史行自然累积，数据量上来再评估 cron。
 - **presigned 15 分钟尾巴**（设计假设 #16）：匿名下载 302 的签名 URL TTL 15 分钟（远超 CLI 120s 下载超时）；下载限频（60 次/分/IP）只封「签发」，已签发 URL 在 TTL 内可重放取字节——出现带宽滥用时按登记口径收紧（TTL 下压或 Vercel WAF）。
+
+契约勾稽：见 CLI 仓库 `docs/release-checklist.md` 第 6 项（联调前契约评审清单）与本仓库设计文档「契约评审清单对照」节。

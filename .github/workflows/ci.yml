@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main] # PR 分支走 pull_request 触发，避免同一提交双跑
   pull_request:
   workflow_dispatch:
 

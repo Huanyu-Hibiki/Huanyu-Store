@@ -18,9 +18,14 @@ const skill=`smoke-e2e-${randomBytes(4).toString('hex')}`; // 随机后缀：不
 
 const die=(message)=>{ console.error(message); process.exit(1); };
 
+/** 连接串安全标签（含口令，只回显 host/库名，凭证不进输出）。 */
+const dbLabelOf=(url)=>{ try{ const parsed=new URL(url); return `${parsed.host}${parsed.pathname}`; }catch{ return '（无法解析的连接串）'; } };
+
 /** 单文件最小 ustar 条目 + 双零块收尾：publish 校验只看 gzip 魔数/sha/尺寸，
  *  但冒烟包按 CLI 真实上传形态打（tar.gz 内含 <skill>/SKILL.md）。 */
 function tarOf(name,content){
+  if (Buffer.byteLength(name,'utf8')>100) // ustar name 字段 100 字节；超长静默截断会造成包内容与预期不符
+    throw new Error(`tar 文件名超 ustar 100 字节上限（${Buffer.byteLength(name,'utf8')}B）：${name}`);
   const body=Buffer.from(content,'utf8');
   const octal=(value,width)=>value.toString(8).padStart(width,'0');
   const header=Buffer.alloc(512);
@@ -50,10 +55,18 @@ async function main(){
   const baseFlag=args.indexOf('--base');
   const externalBase=baseFlag!==-1?args[baseFlag+1]:undefined;
   if (baseFlag!==-1&&!externalBase) die('用法：node --env-file=.env.local scripts/smoke.mjs [--base http://127.0.0.1:3000]');
+  if (externalBase){
+    let target=null;
+    try{ target=new URL(externalBase); }catch{ /* 解析失败走下方协议兜底报错 */ }
+    if (!target||!/^https?:$/.test(target.protocol))
+      die(`--base 须为 http(s) URL（漏 scheme 会被误解析成协议名），如 http://127.0.0.1:3000：${externalBase}`);
+  }
 
   loadLocalEnv();
   const databaseUrl=process.env.DATABASE_URL;
   if (!databaseUrl) die('缺少 DATABASE_URL（示例：node --env-file=.env.local scripts/smoke.mjs）');
+  if (externalBase)
+    console.warn('[smoke] --base 外部模式：清理按本地 DATABASE_URL 直连执行；若目标服务使用不同数据库，本脚本清理不覆盖其库，需手工清理。');
 
   // —— 自起模式的环境注入：只改本进程 env，startDevServer 会原样传给 dev server 子进程 ——
   let outboxDir=null,blobDir=null,outbox;
@@ -241,7 +254,7 @@ async function main(){
           (select count(*) from products where id=${skill} or free_skill=${skill} or paid_skill=${skill}) as products`;
         const residue={users:Number(leftover.users),releases:Number(leftover.releases),products:Number(leftover.products)};
         if (residue.users||residue.releases||residue.products) throw new Error(`残留行：${JSON.stringify(residue)}`);
-        return 'users/releases/products 残留 0 行';
+        return `users/releases/products 残留 0 行（按 DATABASE_URL 清理 → ${dbLabelOf(databaseUrl)}）`;
       } finally { await sql.end({timeout:5}); }
     },{force:true});
     if (blobDir){ rmSync(blobDir,{recursive:true,force:true}); rmSync(outboxDir,{recursive:true,force:true}); }
