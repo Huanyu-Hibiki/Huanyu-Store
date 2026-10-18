@@ -11,7 +11,7 @@ import {
   MAX_PACKAGE_BYTES, NOTES_MAX_LENGTH, RELEASES_PER_SKILL_MAX, isVersion, compareVersions,
   validatePublishHeaders, validateNotes, readPackageBody, latestOf, versionsPayload, downloadUrlFor, isReleaseCountLimited,
 } from '../lib/publish-core.mjs';
-import { blobStore, storageKey } from '../lib/blob.mjs';
+import { blobStore, storageKey, presignOptions } from '../lib/blob.mjs';
 
 const sha256Of=(bytes)=>createHash('sha256').update(bytes).digest('hex');
 
@@ -291,4 +291,14 @@ test('假存储的 signedUrl 为自指回环 attest URL，read 取回落盘字�
     assert.deepEqual(await store.read(key),Buffer.from('x'),'read 私读与 put 落盘字节一致');
     await assert.rejects(()=>store.read('evil/key'),/Blob 键/,'read 同受键形状闸门');
   });
+});
+
+test('presign 契约：access=private 必传、operations=[get]（生产 undefined 主机事件回归）',()=>{
+  const until=Date.now()+60_000;
+  const {issue,presign}=presignOptions('releases/x/1.0.0-abc.tar.gz',until);
+  assert.equal(issue.pathname,'releases/x/1.0.0-abc.tar.gz');
+  assert.deepEqual(issue.operations,['get']);
+  assert.equal(issue.validUntil,until);
+  assert.equal(presign.operation,'get');
+  assert.equal(presign.access,'private','SDK 用 access 构造 <storeId>.<access>.blob 主机，缺省即 undefined 坏域名');
 });
